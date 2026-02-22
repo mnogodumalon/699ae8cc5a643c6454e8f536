@@ -41,8 +41,8 @@
     "tengu_file_write_optimization": false,
     "tengu_cork_m4q": false
   },
-  "firstStartTime": "2026-02-22T14:10:12.454Z",
-  "userID": "23687d38d86f3ab995be61f8a7868c4e271f6596a60e4c00f92629b4dd68ec58",
+  "firstStartTime": "2026-02-22T14:17:03.813Z",
+  "userID": "26950c4c3c46c882dcccb3808408296131e21890e39d96406c62645724234aa9",
   "sonnet45MigrationComplete": true,
   "opus45MigrationComplete": true,
   "opusProMigrationComplete": true,
@@ -50,6 +50,6 @@
   "penguinModeOrgEnabled": true,
   "clientDataCache": {
     "data": null,
-    "timestamp": 1771769413189
+    "timestamp": 1771769824484
   }
 }
