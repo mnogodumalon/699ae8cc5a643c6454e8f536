@@ -1,156 +1,522 @@
 import { useState, useEffect, useMemo } from 'react';
-import type { Kurse, Dozenten, Raeume } from '@/types/app';
+import type { Kurse, Dozenten, Raeume, Anmeldungen, Teilnehmer } from '@/types/app';
 import { LivingAppsService, extractRecordId, createRecordUrl } from '@/services/livingAppsService';
 import { APP_IDS } from '@/types/app';
-import { format, parseISO, isBefore, isToday } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { de } from 'date-fns/locale';
 import {
-  BookOpen, Users, Euro, MapPin, Calendar, ChevronRight, Plus, CheckCircle2,
-  Clock, AlertCircle, X, Edit2, Trash2, GraduationCap, Search,
-  UserPlus, Check, ClipboardList
+  BookOpen, Users, Calendar, MapPin, Euro, Plus, X, ChevronRight,
+  GraduationCap, CheckCircle2, Clock, AlertCircle, Search, UserPlus, Trash2
 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 
-// ── helpers ──────────────────────────────────────────────────────────────────
-
-function formatDate(d: string | undefined | null): string {
-  if (!d) return '—';
-  try { return format(parseISO(d), 'dd.MM.yyyy', { locale: de }); } catch { return d; }
+function formatDate(s: string | undefined) {
+  if (!s) return '—';
+  try { return format(parseISO(s), 'dd.MM.yyyy', { locale: de }); } catch { return s; }
 }
 
-function formatCurrency(v: number | null | undefined): string {
+function formatCurrency(v: number | undefined) {
   if (v == null) return '—';
   return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(v);
 }
 
-function getCourseStatus(kurs: Kurse): 'upcoming' | 'active' | 'past' {
-  const now = new Date();
-  const start = kurs.fields.startdatum ? parseISO(kurs.fields.startdatum) : null;
-  const end = kurs.fields.enddatum ? parseISO(kurs.fields.enddatum) : null;
-  if (!start) return 'upcoming';
-  if (end && isBefore(end, now)) return 'past';
-  if (isBefore(start, now) || isToday(start)) return 'active';
-  return 'upcoming';
-}
+type EnrichedKurs = Kurse & {
+  dozentName: string;
+  raumName: string;
+  anmeldungenCount: number;
+  anmeldungen: EnrichedAnmeldung[];
+};
 
-// ── types ─────────────────────────────────────────────────────────────────────
+type EnrichedAnmeldung = Anmeldungen & {
+  teilnehmerName: string;
+};
 
-interface AnmeldungForm {
-  teilnehmer_vorname: string;
-  teilnehmer_nachname: string;
-  teilnehmer_email: string;
-  teilnehmer_telefon: string;
-  anmeldedatum: string;
-  bezahlt: boolean;
-  kurs: string;
-}
+// ---- Enrollment Dialog ----
+function EnrollmentDialog({
+  kurs,
+  anmeldungen,
+  teilnehmerList,
+  onClose,
+  onAdd,
+  onDelete,
+}: {
+  kurs: EnrichedKurs;
+  anmeldungen: EnrichedAnmeldung[];
+  teilnehmerList: Teilnehmer[];
+  onClose: () => void;
+  onAdd: (kursId: string, teilnehmerId: string) => Promise<void>;
+  onDelete: (anmeldungId: string) => Promise<void>;
+}) {
+  const [selectedTeilnehmer, setSelectedTeilnehmer] = useState('none');
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
-const emptyAnmeldungForm = (kursId?: string): AnmeldungForm => ({
-  teilnehmer_vorname: '',
-  teilnehmer_nachname: '',
-  teilnehmer_email: '',
-  teilnehmer_telefon: '',
-  anmeldedatum: format(new Date(), 'yyyy-MM-dd'),
-  bezahlt: false,
-  kurs: kursId ? createRecordUrl(APP_IDS.KURSANMELDUNG, kursId) : '',
-});
+  const enrolledIds = useMemo(() => {
+    return new Set(
+      anmeldungen.map(a => extractRecordId(a.fields.teilnehmer)).filter(Boolean)
+    );
+  }, [anmeldungen]);
 
-// ── sub-components ────────────────────────────────────────────────────────────
+  const availableTeilnehmer = teilnehmerList.filter(t => !enrolledIds.has(t.record_id));
+  const filteredEnrolled = anmeldungen.filter(a =>
+    a.teilnehmerName.toLowerCase().includes(search.toLowerCase())
+  );
 
-function SkeletonCards() {
+  const handleAdd = async () => {
+    if (selectedTeilnehmer === 'none') return;
+    setSaving(true);
+    try {
+      await onAdd(kurs.record_id, selectedTeilnehmer);
+      setSelectedTeilnehmer('none');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    setDeletingId(id);
+    try { await onDelete(id); } finally { setDeletingId(null); }
+  };
+
+  const capacity = kurs.fields.max_teilnehmer ?? 0;
+  const enrolled = anmeldungen.length;
+  const fillPct = capacity > 0 ? Math.min(100, Math.round((enrolled / capacity) * 100)) : 0;
+  const isFull = capacity > 0 && enrolled >= capacity;
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-      {[1, 2, 3, 4, 5, 6].map(i => (
-        <div key={i} className="rounded-xl border bg-card p-5 space-y-3" style={{ boxShadow: 'var(--shadow-card)' }}>
-          <Skeleton className="h-5 w-3/4" />
-          <Skeleton className="h-4 w-1/2" />
-          <div className="flex gap-2 pt-1">
-            <Skeleton className="h-6 w-16 rounded-full" />
-            <Skeleton className="h-6 w-20 rounded-full" />
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-700 text-foreground">
+            {kurs.fields.titel ?? 'Kurs'}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {/* Capacity Bar */}
+          <div className="p-3 rounded-xl bg-muted/60 space-y-2">
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-muted-foreground font-500">Belegung</span>
+              <span className={`font-700 ${isFull ? 'text-destructive' : 'text-primary'}`}>
+                {enrolled} / {capacity || '∞'} Plätze
+              </span>
+            </div>
+            {capacity > 0 && (
+              <div className="h-2 bg-border rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${fillPct >= 90 ? 'bg-destructive' : fillPct >= 60 ? 'bg-chart-3' : 'bg-primary'}`}
+                  style={{ width: `${fillPct}%` }}
+                />
+              </div>
+            )}
           </div>
-          <Skeleton className="h-2 w-full rounded-full" />
+
+          {/* Add Enrollment */}
+          {!isFull && (
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Select value={selectedTeilnehmer} onValueChange={setSelectedTeilnehmer}>
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue placeholder="Teilnehmer auswählen…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— Teilnehmer auswählen —</SelectItem>
+                    {availableTeilnehmer.map(t => (
+                      <SelectItem key={t.record_id} value={t.record_id}>
+                        {t.fields.vorname} {t.fields.nachname}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                size="sm"
+                disabled={selectedTeilnehmer === 'none' || saving}
+                onClick={handleAdd}
+                className="gap-1.5 h-9"
+              >
+                <UserPlus size={14} />
+                Anmelden
+              </Button>
+            </div>
+          )}
+          {isFull && (
+            <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/8 rounded-lg px-3 py-2">
+              <AlertCircle size={14} />
+              Kurs ist vollständig belegt
+            </div>
+          )}
+
+          {/* Enrolled List */}
+          {anmeldungen.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-600 uppercase tracking-wide text-muted-foreground">
+                  Angemeldete Teilnehmer
+                </span>
+                <div className="relative">
+                  <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="Suchen…"
+                    className="h-7 pl-6 pr-2 text-xs bg-muted rounded-md border-0 outline-none w-28 focus:ring-1 focus:ring-ring"
+                  />
+                </div>
+              </div>
+              <div className="max-h-52 overflow-y-auto space-y-1 rounded-xl border bg-card p-1">
+                {filteredEnrolled.length === 0 ? (
+                  <p className="text-xs text-muted-foreground py-2 text-center">Keine Ergebnisse</p>
+                ) : (
+                  filteredEnrolled.map(a => (
+                    <div
+                      key={a.record_id}
+                      className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-muted/60 group"
+                    >
+                      <div>
+                        <p className="text-sm font-500 text-foreground">{a.teilnehmerName}</p>
+                        {a.fields.anmeldedatum && (
+                          <p className="text-xs text-muted-foreground">
+                            Angemeldet {formatDate(a.fields.anmeldedatum)}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant={a.fields.bezahlt ? 'default' : 'secondary'}
+                          className={`text-xs ${a.fields.bezahlt ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}
+                        >
+                          {a.fields.bezahlt ? 'Bezahlt' : 'Ausstehend'}
+                        </Badge>
+                        <button
+                          onClick={() => handleDelete(a.record_id)}
+                          disabled={deletingId === a.record_id}
+                          className="opacity-0 group-hover:opacity-100 p-1 rounded text-muted-foreground hover:text-destructive transition-all"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+          {anmeldungen.length === 0 && (
+            <div className="text-center py-4 text-muted-foreground text-sm">
+              Noch keine Anmeldungen für diesen Kurs
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---- Quick Add Course Dialog ----
+function AddKursDialog({
+  dozenten,
+  raeume,
+  onClose,
+  onSave,
+}: {
+  dozenten: Dozenten[];
+  raeume: Raeume[];
+  onClose: () => void;
+  onSave: (fields: Kurse['fields']) => Promise<void>;
+}) {
+  const [form, setForm] = useState<Kurse['fields']>({});
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!form.titel) return;
+    setSaving(true);
+    try { await onSave(form); onClose(); } finally { setSaving(false); }
+  };
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Neuen Kurs erstellen</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Titel *</Label>
+            <Input
+              value={form.titel ?? ''}
+              onChange={e => setForm(f => ({ ...f, titel: e.target.value }))}
+              placeholder="Kurstitel…"
+              className="mt-1"
+            />
+          </div>
+          <div>
+            <Label className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Beschreibung</Label>
+            <textarea
+              value={form.beschreibung ?? ''}
+              onChange={e => setForm(f => ({ ...f, beschreibung: e.target.value }))}
+              placeholder="Kurze Beschreibung…"
+              rows={2}
+              className="mt-1 w-full text-sm rounded-md border border-input bg-background px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Startdatum</Label>
+              <Input type="date" value={form.startdatum ?? ''} onChange={e => setForm(f => ({ ...f, startdatum: e.target.value }))} className="mt-1" />
+            </div>
+            <div>
+              <Label className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Enddatum</Label>
+              <Input type="date" value={form.enddatum ?? ''} onChange={e => setForm(f => ({ ...f, enddatum: e.target.value }))} className="mt-1" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Max. Teilnehmer</Label>
+              <Input
+                type="number"
+                value={form.max_teilnehmer ?? ''}
+                onChange={e => setForm(f => ({ ...f, max_teilnehmer: e.target.value ? Number(e.target.value) : undefined }))}
+                placeholder="20"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Preis (EUR)</Label>
+              <Input
+                type="number"
+                value={form.preis ?? ''}
+                onChange={e => setForm(f => ({ ...f, preis: e.target.value ? Number(e.target.value) : undefined }))}
+                placeholder="199"
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Dozent</Label>
+            <Select
+              value={extractRecordId(form.dozent) ?? 'none'}
+              onValueChange={v => setForm(f => ({ ...f, dozent: v === 'none' ? undefined : createRecordUrl(APP_IDS.DOZENTEN, v) }))}
+            >
+              <SelectTrigger className="mt-1">
+                <SelectValue placeholder="Dozent wählen…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— Kein Dozent —</SelectItem>
+                {dozenten.map(d => (
+                  <SelectItem key={d.record_id} value={d.record_id}>
+                    {d.fields.vorname} {d.fields.nachname}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Raum</Label>
+            <Select
+              value={extractRecordId(form.raum) ?? 'none'}
+              onValueChange={v => setForm(f => ({ ...f, raum: v === 'none' ? undefined : createRecordUrl(APP_IDS.RAEUME, v) }))}
+            >
+              <SelectTrigger className="mt-1">
+                <SelectValue placeholder="Raum wählen…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— Kein Raum —</SelectItem>
+                {raeume.map(r => (
+                  <SelectItem key={r.record_id} value={r.record_id}>
+                    {r.fields.raumname} {r.fields.gebaeude ? `(${r.fields.gebaeude})` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="ghost" onClick={onClose} size="sm">Abbrechen</Button>
+            <Button onClick={handleSave} disabled={!form.titel || saving} size="sm">
+              Kurs erstellen
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---- Course Card ----
+function KursCard({ kurs, onClick }: { kurs: EnrichedKurs; onClick: () => void }) {
+  const capacity = kurs.fields.max_teilnehmer ?? 0;
+  const enrolled = kurs.anmeldungenCount;
+  const fillPct = capacity > 0 ? Math.min(100, Math.round((enrolled / capacity) * 100)) : 0;
+  const isFull = capacity > 0 && enrolled >= capacity;
+  const isAlmostFull = fillPct >= 80 && !isFull;
+
+  const statusColor = isFull
+    ? 'bg-red-50 text-red-600 border-red-200'
+    : isAlmostFull
+    ? 'bg-amber-50 text-amber-700 border-amber-200'
+    : 'bg-emerald-50 text-emerald-700 border-emerald-200';
+
+  const statusLabel = isFull ? 'Ausgebucht' : isAlmostFull ? 'Fast voll' : 'Verfügbar';
+  const StatusIcon = isFull ? AlertCircle : isAlmostFull ? Clock : CheckCircle2;
+
+  return (
+    <button
+      onClick={onClick}
+      className="group text-left w-full bg-card border border-border rounded-2xl p-5 hover:border-primary/40 hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-ring"
+    >
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="flex-1 min-w-0">
+          <h3 className="font-700 text-foreground text-base leading-tight truncate group-hover:text-primary transition-colors">
+            {kurs.fields.titel ?? 'Unbenannter Kurs'}
+          </h3>
+          {kurs.fields.beschreibung && (
+            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2 leading-relaxed">
+              {kurs.fields.beschreibung}
+            </p>
+          )}
+        </div>
+        <span className={`shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-600 ${statusColor}`}>
+          <StatusIcon size={10} />
+          {statusLabel}
+        </span>
+      </div>
+
+      <div className="space-y-1.5 mb-4">
+        {(kurs.fields.startdatum || kurs.fields.enddatum) && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Calendar size={11} className="shrink-0" />
+            <span>
+              {formatDate(kurs.fields.startdatum)}
+              {kurs.fields.enddatum && ` – ${formatDate(kurs.fields.enddatum)}`}
+            </span>
+          </div>
+        )}
+        {kurs.dozentName && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <GraduationCap size={11} className="shrink-0" />
+            <span>{kurs.dozentName}</span>
+          </div>
+        )}
+        {kurs.raumName && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <MapPin size={11} className="shrink-0" />
+            <span>{kurs.raumName}</span>
+          </div>
+        )}
+        {kurs.fields.preis != null && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Euro size={11} className="shrink-0" />
+            <span>{formatCurrency(kurs.fields.preis)}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Capacity bar */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted-foreground">
+            <Users size={10} className="inline mr-1" />
+            {enrolled} Anmeldung{enrolled !== 1 ? 'en' : ''}
+          </span>
+          <span className={`font-600 ${isFull ? 'text-red-600' : 'text-muted-foreground'}`}>
+            {capacity > 0 ? `${capacity} Plätze` : 'Unbegrenzt'}
+          </span>
+        </div>
+        {capacity > 0 && (
+          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${isFull ? 'bg-red-400' : isAlmostFull ? 'bg-amber-400' : 'bg-primary'}`}
+              style={{ width: `${fillPct}%` }}
+            />
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 pt-3 border-t border-border/60 flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">Anmeldungen verwalten</span>
+        <ChevronRight size={14} className="text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
+      </div>
+    </button>
+  );
+}
+
+// ---- KPI Bar ----
+function KpiBar({ kurse, anmeldungen }: { kurse: EnrichedKurs[]; anmeldungen: Anmeldungen[] }) {
+  const totalKurse = kurse.length;
+  const totalAnmeldungen = anmeldungen.length;
+  const bezahlt = anmeldungen.filter(a => a.fields.bezahlt).length;
+  const ausstehend = totalAnmeldungen - bezahlt;
+  const ausgebucht = kurse.filter(k => {
+    const c = k.fields.max_teilnehmer ?? 0;
+    return c > 0 && k.anmeldungenCount >= c;
+  }).length;
+
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+      {[
+        { label: 'Kurse gesamt', value: totalKurse, icon: BookOpen, color: 'text-primary', bg: 'bg-primary/8' },
+        { label: 'Anmeldungen', value: totalAnmeldungen, icon: Users, color: 'text-violet-600', bg: 'bg-violet-50' },
+        { label: 'Bezahlt', value: bezahlt, icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+        { label: 'Ausstehend', value: ausstehend, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
+      ].map(({ label, value, icon: Icon, color, bg }) => (
+        <div key={label} className="bg-card border border-border rounded-2xl px-4 py-3 flex items-center gap-3">
+          <div className={`w-9 h-9 rounded-xl ${bg} flex items-center justify-center shrink-0`}>
+            <Icon size={16} className={color} />
+          </div>
+          <div>
+            <p className="text-2xl font-800 text-foreground leading-none">{value}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+          </div>
         </div>
       ))}
     </div>
   );
 }
 
-// ── main component ────────────────────────────────────────────────────────────
-
+// ---- Main Dashboard ----
 export default function DashboardOverview() {
   const [kurse, setKurse] = useState<Kurse[]>([]);
   const [dozenten, setDozenten] = useState<Dozenten[]>([]);
   const [raeume, setRaeume] = useState<Raeume[]>([]);
-  const [kursanmeldungen, setKursanmeldungen] = useState<import('@/types/app').Kursanmeldung[]>([]);
+  const [anmeldungen, setAnmeldungen] = useState<Anmeldungen[]>([]);
+  const [teilnehmer, setTeilnehmer] = useState<Teilnehmer[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Error | null>(null);
 
-  // UI state
-  const [selectedKurs, setSelectedKurs] = useState<Kurse | null>(null);
-  const [filter, setFilter] = useState<'all' | 'upcoming' | 'active' | 'past'>('all');
-  const [search, setSearch] = useState('');
+  const [selectedKurs, setSelectedKurs] = useState<EnrichedKurs | null>(null);
+  const [showAddKurs, setShowAddKurs] = useState(false);
+  const [filterSearch, setFilterSearch] = useState('');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'available' | 'full'>('all');
 
-  // Dialog state
-  const [showAnmeldungDialog, setShowAnmeldungDialog] = useState(false);
-  const [editingAnmeldung, setEditingAnmeldung] = useState<import('@/types/app').Kursanmeldung | null>(null);
-  const [anmeldungForm, setAnmeldungForm] = useState<AnmeldungForm>(emptyAnmeldungForm());
-  const [deleteAnmeldungId, setDeleteAnmeldungId] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  // Kurs dialog
-  const [showKursDialog, setShowKursDialog] = useState(false);
-  const [editingKurs, setEditingKurs] = useState<Kurse | null>(null);
-  const [kursForm, setKursForm] = useState({
-    titel: '', beschreibung: '', startdatum: '', enddatum: '',
-    max_teilnehmer: '', preis: '', dozent: 'none', raum: 'none',
-  });
-  const [deleteKursId, setDeleteKursId] = useState<string | null>(null);
-
-  // ── fetch ──────────────────────────────────────────────────────────────────
-
-  async function loadAll() {
+  const fetchAll = async () => {
     try {
-      const [k, d, r, ka] = await Promise.all([
+      const [k, d, r, a, t] = await Promise.all([
         LivingAppsService.getKurse(),
         LivingAppsService.getDozenten(),
         LivingAppsService.getRaeume(),
-        LivingAppsService.getKursanmeldung(),
+        LivingAppsService.getAnmeldungen(),
+        LivingAppsService.getTeilnehmer(),
       ]);
       setKurse(k);
       setDozenten(d);
       setRaeume(r);
-      setKursanmeldungen(ka);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Fehler beim Laden der Daten');
+      setAnmeldungen(a);
+      setTeilnehmer(t);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Fehler beim Laden'));
     } finally {
       setLoading(false);
     }
-  }
+  };
 
-  useEffect(() => { loadAll(); }, []);
-
-  // ── lookup maps ────────────────────────────────────────────────────────────
+  useEffect(() => { fetchAll(); }, []);
 
   const dozentenMap = useMemo(() => {
     const m = new Map<string, Dozenten>();
@@ -164,776 +530,244 @@ export default function DashboardOverview() {
     return m;
   }, [raeume]);
 
-  // registrations per course (Kursanmeldung references Kurse via applookup)
-  const anmeldungenByKurs = useMemo(() => {
-    const m = new Map<string, import('@/types/app').Kursanmeldung[]>();
-    kursanmeldungen.forEach(a => {
-      const kid = extractRecordId(a.fields.kurs);
-      if (!kid) return;
-      if (!m.has(kid)) m.set(kid, []);
-      m.get(kid)!.push(a);
-    });
+  const teilnehmerMap = useMemo(() => {
+    const m = new Map<string, Teilnehmer>();
+    teilnehmer.forEach(t => m.set(t.record_id, t));
     return m;
-  }, [kursanmeldungen]);
+  }, [teilnehmer]);
 
-  // ── derived/filtered ───────────────────────────────────────────────────────
+  const enrichedKurse: EnrichedKurs[] = useMemo(() => {
+    return kurse.map(k => {
+      const dozentId = extractRecordId(k.fields.dozent);
+      const raumId = extractRecordId(k.fields.raum);
+      const kursAnmeldungen = anmeldungen.filter(a => extractRecordId(a.fields.kurs) === k.record_id);
+
+      const enrichedAnmeldungen: EnrichedAnmeldung[] = kursAnmeldungen.map(a => {
+        const tnId = extractRecordId(a.fields.teilnehmer);
+        const tn = tnId ? teilnehmerMap.get(tnId) : undefined;
+        return {
+          ...a,
+          teilnehmerName: tn ? `${tn.fields.vorname ?? ''} ${tn.fields.nachname ?? ''}`.trim() : 'Unbekannt',
+        };
+      });
+
+      return {
+        ...k,
+        dozentName: dozentId
+          ? `${dozentenMap.get(dozentId)?.fields.vorname ?? ''} ${dozentenMap.get(dozentId)?.fields.nachname ?? ''}`.trim()
+          : '',
+        raumName: raumId
+          ? `${raeumeMap.get(raumId)?.fields.raumname ?? ''}`
+          : '',
+        anmeldungenCount: kursAnmeldungen.length,
+        anmeldungen: enrichedAnmeldungen,
+      };
+    });
+  }, [kurse, anmeldungen, dozentenMap, raeumeMap, teilnehmerMap]);
 
   const filteredKurse = useMemo(() => {
-    let list = kurse;
-    if (filter !== 'all') list = list.filter(k => getCourseStatus(k) === filter);
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter(k =>
-        k.fields.titel?.toLowerCase().includes(q) ||
-        k.fields.beschreibung?.toLowerCase().includes(q)
-      );
-    }
-    // sort: active first, then upcoming, then past
-    const order = { active: 0, upcoming: 1, past: 2 };
-    return [...list].sort((a, b) => order[getCourseStatus(a)] - order[getCourseStatus(b)]);
-  }, [kurse, filter, search]);
-
-  const statsOverall = useMemo(() => {
-    const total = kurse.length;
-    const active = kurse.filter(k => getCourseStatus(k) === 'active').length;
-    const totalAnmeldungen = kursanmeldungen.length;
-    const bezahlt = kursanmeldungen.filter(a => a.fields.bezahlt).length;
-    return { total, active, totalAnmeldungen, bezahlt };
-  }, [kurse, kursanmeldungen]);
-
-  // ── kurs CRUD ──────────────────────────────────────────────────────────────
-
-  function openCreateKurs() {
-    setEditingKurs(null);
-    setKursForm({ titel: '', beschreibung: '', startdatum: '', enddatum: '', max_teilnehmer: '', preis: '', dozent: 'none', raum: 'none' });
-    setShowKursDialog(true);
-  }
-
-  function openEditKurs(k: Kurse, e: React.MouseEvent) {
-    e.stopPropagation();
-    setEditingKurs(k);
-    const dozId = extractRecordId(k.fields.dozent);
-    const raumId = extractRecordId(k.fields.raum);
-    setKursForm({
-      titel: k.fields.titel ?? '',
-      beschreibung: k.fields.beschreibung ?? '',
-      startdatum: k.fields.startdatum ?? '',
-      enddatum: k.fields.enddatum ?? '',
-      max_teilnehmer: k.fields.max_teilnehmer != null ? String(k.fields.max_teilnehmer) : '',
-      preis: k.fields.preis != null ? String(k.fields.preis) : '',
-      dozent: dozId ?? 'none',
-      raum: raumId ?? 'none',
+    return enrichedKurse.filter(k => {
+      const matchSearch = filterSearch === '' ||
+        (k.fields.titel ?? '').toLowerCase().includes(filterSearch.toLowerCase()) ||
+        k.dozentName.toLowerCase().includes(filterSearch.toLowerCase());
+      const cap = k.fields.max_teilnehmer ?? 0;
+      const isFull = cap > 0 && k.anmeldungenCount >= cap;
+      const matchStatus =
+        filterStatus === 'all' ||
+        (filterStatus === 'available' && !isFull) ||
+        (filterStatus === 'full' && isFull);
+      return matchSearch && matchStatus;
     });
-    setShowKursDialog(true);
-  }
+  }, [enrichedKurse, filterSearch, filterStatus]);
 
-  async function saveKurs() {
-    setSaving(true);
-    try {
-      const fields: Kurse['fields'] = {
-        titel: kursForm.titel || undefined,
-        beschreibung: kursForm.beschreibung || undefined,
-        startdatum: kursForm.startdatum || undefined,
-        enddatum: kursForm.enddatum || undefined,
-        max_teilnehmer: kursForm.max_teilnehmer ? Number(kursForm.max_teilnehmer) : undefined,
-        preis: kursForm.preis ? Number(kursForm.preis) : undefined,
-        dozent: kursForm.dozent !== 'none' ? createRecordUrl(APP_IDS.DOZENTEN, kursForm.dozent) : undefined,
-        raum: kursForm.raum !== 'none' ? createRecordUrl(APP_IDS.RAEUME, kursForm.raum) : undefined,
-      };
-      if (editingKurs) {
-        await LivingAppsService.updateKurseEntry(editingKurs.record_id, fields);
-      } else {
-        await LivingAppsService.createKurseEntry(fields);
-      }
-      await loadAll();
-      setShowKursDialog(false);
-    } catch (e) {
-      alert('Fehler beim Speichern: ' + (e instanceof Error ? e.message : String(e)));
-    } finally {
-      setSaving(false);
-    }
-  }
+  const handleAddKurs = async (fields: Kurse['fields']) => {
+    await LivingAppsService.createKurseEntry(fields);
+    await fetchAll();
+  };
 
-  async function deleteKurs() {
-    if (!deleteKursId) return;
-    setSaving(true);
-    try {
-      await LivingAppsService.deleteKurseEntry(deleteKursId);
-      if (selectedKurs?.record_id === deleteKursId) setSelectedKurs(null);
-      await loadAll();
-      setDeleteKursId(null);
-    } catch (e) {
-      alert('Fehler beim Löschen: ' + (e instanceof Error ? e.message : String(e)));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  // ── anmeldung CRUD ─────────────────────────────────────────────────────────
-
-  function openCreateAnmeldung() {
-    if (!selectedKurs) return;
-    setEditingAnmeldung(null);
-    setAnmeldungForm({ ...emptyAnmeldungForm(selectedKurs.record_id), kurs: createRecordUrl(APP_IDS.KURSE, selectedKurs.record_id) });
-    setShowAnmeldungDialog(true);
-  }
-
-  function openEditAnmeldung(a: import('@/types/app').Kursanmeldung) {
-    setEditingAnmeldung(a);
-    setAnmeldungForm({
-      teilnehmer_vorname: a.fields.teilnehmer_vorname ?? '',
-      teilnehmer_nachname: a.fields.teilnehmer_nachname ?? '',
-      teilnehmer_email: a.fields.teilnehmer_email ?? '',
-      teilnehmer_telefon: a.fields.teilnehmer_telefon ?? '',
-      anmeldedatum: a.fields.anmeldedatum ?? format(new Date(), 'yyyy-MM-dd'),
-      bezahlt: a.fields.bezahlt ?? false,
-      kurs: a.fields.kurs ?? '',
+  const handleAddAnmeldung = async (kursId: string, teilnehmerId: string) => {
+    await LivingAppsService.createAnmeldungenEntry({
+      kurs: createRecordUrl(APP_IDS.KURSE, kursId),
+      teilnehmer: createRecordUrl(APP_IDS.TEILNEHMER, teilnehmerId),
+      anmeldedatum: new Date().toISOString().split('T')[0],
+      bezahlt: false,
     });
-    setShowAnmeldungDialog(true);
-  }
+    const updated = await LivingAppsService.getAnmeldungen();
+    setAnmeldungen(updated);
+    // Update selectedKurs with new data
+    setSelectedKurs(prev => {
+      if (!prev) return prev;
+      const newKursAnmeldungen = updated.filter(a => extractRecordId(a.fields.kurs) === prev.record_id);
+      const enrichedAnmeldungen: EnrichedAnmeldung[] = newKursAnmeldungen.map(a => {
+        const tnId = extractRecordId(a.fields.teilnehmer);
+        const tn = tnId ? teilnehmerMap.get(tnId) : undefined;
+        return {
+          ...a,
+          teilnehmerName: tn ? `${tn.fields.vorname ?? ''} ${tn.fields.nachname ?? ''}`.trim() : 'Unbekannt',
+        };
+      });
+      return { ...prev, anmeldungenCount: newKursAnmeldungen.length, anmeldungen: enrichedAnmeldungen };
+    });
+  };
 
-  async function saveAnmeldung() {
-    setSaving(true);
-    try {
-      const fields: import('@/types/app').Kursanmeldung['fields'] = {
-        kurs: anmeldungForm.kurs || undefined,
-        teilnehmer_vorname: anmeldungForm.teilnehmer_vorname || undefined,
-        teilnehmer_nachname: anmeldungForm.teilnehmer_nachname || undefined,
-        teilnehmer_email: anmeldungForm.teilnehmer_email || undefined,
-        teilnehmer_telefon: anmeldungForm.teilnehmer_telefon || undefined,
-        anmeldedatum: anmeldungForm.anmeldedatum || undefined,
-        bezahlt: anmeldungForm.bezahlt,
-      };
-      if (editingAnmeldung) {
-        await LivingAppsService.updateKursanmeldungEntry(editingAnmeldung.record_id, fields);
-      } else {
-        await LivingAppsService.createKursanmeldungEntry(fields);
-      }
-      await loadAll();
-      setShowAnmeldungDialog(false);
-    } catch (e) {
-      alert('Fehler beim Speichern: ' + (e instanceof Error ? e.message : String(e)));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function deleteAnmeldung() {
-    if (!deleteAnmeldungId) return;
-    setSaving(true);
-    try {
-      await LivingAppsService.deleteKursanmeldungEntry(deleteAnmeldungId);
-      await loadAll();
-      setDeleteAnmeldungId(null);
-    } catch (e) {
-      alert('Fehler beim Löschen: ' + (e instanceof Error ? e.message : String(e)));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  // ── derived for selected course ────────────────────────────────────────────
-
-  const selectedAnmeldungen = selectedKurs ? (anmeldungenByKurs.get(selectedKurs.record_id) ?? []) : [];
-  const selectedDozent = selectedKurs ? dozentenMap.get(extractRecordId(selectedKurs.fields.dozent) ?? '') : undefined;
-  const selectedRaum = selectedKurs ? raeumeMap.get(extractRecordId(selectedKurs.fields.raum) ?? '') : undefined;
-
-  // ── render ─────────────────────────────────────────────────────────────────
+  const handleDeleteAnmeldung = async (id: string) => {
+    await LivingAppsService.deleteAnmeldungenEntry(id);
+    const updated = await LivingAppsService.getAnmeldungen();
+    setAnmeldungen(updated);
+    setSelectedKurs(prev => {
+      if (!prev) return prev;
+      const newKursAnmeldungen = updated.filter(a => extractRecordId(a.fields.kurs) === prev.record_id);
+      const enrichedAnmeldungen: EnrichedAnmeldung[] = newKursAnmeldungen.map(a => {
+        const tnId = extractRecordId(a.fields.teilnehmer);
+        const tn = tnId ? teilnehmerMap.get(tnId) : undefined;
+        return {
+          ...a,
+          teilnehmerName: tn ? `${tn.fields.vorname ?? ''} ${tn.fields.nachname ?? ''}`.trim() : 'Unbekannt',
+        };
+      });
+      return { ...prev, anmeldungenCount: newKursAnmeldungen.length, anmeldungen: enrichedAnmeldungen };
+    });
+  };
 
   if (loading) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <div className="space-y-1">
-            <Skeleton className="h-8 w-56" />
-            <Skeleton className="h-4 w-36" />
-          </div>
-          <Skeleton className="h-9 w-28 rounded-lg" />
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-9 w-36" />
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {[1,2,3,4].map(i => <Skeleton key={i} className="h-20 rounded-xl" />)}
+          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-16 rounded-2xl" />)}
         </div>
-        <SkeletonCards />
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+          {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-52 rounded-2xl" />)}
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
-        <AlertCircle className="text-destructive" size={40} />
-        <p className="text-lg font-semibold text-foreground">Fehler beim Laden</p>
-        <p className="text-muted-foreground text-sm">{error}</p>
-        <Button onClick={() => { setError(null); setLoading(true); loadAll(); }}>Erneut versuchen</Button>
+      <div className="flex flex-col items-center justify-center py-24 gap-4">
+        <div className="w-12 h-12 rounded-2xl bg-destructive/10 flex items-center justify-center">
+          <AlertCircle size={22} className="text-destructive" />
+        </div>
+        <div className="text-center">
+          <h3 className="font-600 text-foreground mb-1">Fehler beim Laden</h3>
+          <p className="text-sm text-muted-foreground max-w-xs">{error.message}</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => { setError(null); setLoading(true); fetchAll(); }}>
+          Erneut versuchen
+        </Button>
       </div>
     );
   }
 
-  const statusConfig = {
-    active: { label: 'Laufend', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
-    upcoming: { label: 'Bevorstehend', color: 'bg-blue-100 text-blue-700 border-blue-200' },
-    past: { label: 'Abgeschlossen', color: 'bg-gray-100 text-gray-500 border-gray-200' },
-  };
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-0">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-800 tracking-tight text-foreground">Kursübersicht</h1>
+          <h1 className="text-2xl font-800 text-foreground tracking-tight">Kursübersicht</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {statsOverall.total} Kurse · {statsOverall.totalAnmeldungen} Anmeldungen
+            {enrichedKurse.length} Kurs{enrichedKurse.length !== 1 ? 'e' : ''} · Klicken zum Verwalten
           </p>
         </div>
-        <Button onClick={openCreateKurs} className="gap-2 shrink-0" style={{ background: 'var(--gradient-primary)' }}>
+        <Button onClick={() => setShowAddKurs(true)} className="gap-2 shrink-0">
           <Plus size={16} />
           Neuer Kurs
         </Button>
       </div>
 
-      {/* KPI strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {[
-          { label: 'Aktive Kurse', value: statsOverall.active, icon: BookOpen, accent: 'text-primary' },
-          { label: 'Gesamt Kurse', value: statsOverall.total, icon: Calendar, accent: 'text-violet-600' },
-          { label: 'Anmeldungen', value: statsOverall.totalAnmeldungen, icon: Users, accent: 'text-amber-600' },
-          { label: 'Bezahlt', value: statsOverall.bezahlt, icon: CheckCircle2, accent: 'text-emerald-600' },
-        ].map(({ label, value, icon: Icon, accent }) => (
-          <div key={label} className="rounded-xl border bg-card p-4" style={{ boxShadow: 'var(--shadow-card)' }}>
-            <div className="flex items-center gap-2 mb-1">
-              <Icon size={15} className={accent} />
-              <span className="text-xs text-muted-foreground font-medium">{label}</span>
-            </div>
-            <p className="text-2xl font-700 text-foreground">{value}</p>
-          </div>
-        ))}
-      </div>
+      {/* KPI Bar */}
+      <KpiBar kurse={enrichedKurse} anmeldungen={anmeldungen} />
 
-      {/* Filter + Search bar */}
-      <div className="flex flex-col sm:flex-row gap-2">
+      {/* Filter Bar */}
+      <div className="flex flex-col sm:flex-row gap-2 mb-5">
         <div className="relative flex-1">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Kurs suchen…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="pl-9"
+            value={filterSearch}
+            onChange={e => setFilterSearch(e.target.value)}
+            placeholder="Kurse oder Dozent suchen…"
+            className="pl-9 h-9 text-sm"
           />
+          {filterSearch && (
+            <button
+              onClick={() => setFilterSearch('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X size={13} />
+            </button>
+          )}
         </div>
         <div className="flex gap-1.5">
-          {(['all', 'active', 'upcoming', 'past'] as const).map(f => (
+          {(['all', 'available', 'full'] as const).map(f => (
             <button
               key={f}
-              onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
-                filter === f
+              onClick={() => setFilterStatus(f)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-600 border transition-colors ${
+                filterStatus === f
                   ? 'bg-primary text-primary-foreground border-primary'
-                  : 'bg-card text-muted-foreground border-border hover:bg-accent hover:text-accent-foreground'
+                  : 'bg-card text-muted-foreground border-border hover:border-primary/40'
               }`}
             >
-              {f === 'all' ? 'Alle' : statusConfig[f].label}
+              {f === 'all' ? 'Alle' : f === 'available' ? 'Verfügbar' : 'Ausgebucht'}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Main workspace: course grid + detail panel */}
-      <div className="flex gap-5 items-start">
-        {/* Course cards */}
-        <div className={`flex-1 min-w-0 ${selectedKurs ? 'xl:w-auto' : ''}`}>
-          {filteredKurse.length === 0 ? (
-            <div className="rounded-xl border bg-card p-12 text-center" style={{ boxShadow: 'var(--shadow-card)' }}>
-              <BookOpen size={36} className="mx-auto text-muted-foreground/40 mb-3" />
-              <p className="font-semibold text-foreground">Keine Kurse gefunden</p>
-              <p className="text-sm text-muted-foreground mt-1">Erstelle deinen ersten Kurs oder passe den Filter an.</p>
-              <Button className="mt-4" onClick={openCreateKurs}>
-                <Plus size={15} className="mr-2" />
-                Kurs erstellen
-              </Button>
-            </div>
-          ) : (
-            <div className={`grid gap-3 ${selectedKurs ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'}`}>
-              {filteredKurse.map(kurs => {
-                const status = getCourseStatus(kurs);
-                const sc = statusConfig[status];
-                const regs = anmeldungenByKurs.get(kurs.record_id) ?? [];
-                const max = kurs.fields.max_teilnehmer ?? 0;
-                const fillPct = max > 0 ? Math.min(100, (regs.length / max) * 100) : 0;
-                const bezahltCount = regs.filter(a => a.fields.bezahlt).length;
-                const doz = dozentenMap.get(extractRecordId(kurs.fields.dozent) ?? '');
-                const raum = raeumeMap.get(extractRecordId(kurs.fields.raum) ?? '');
-                const isSelected = selectedKurs?.record_id === kurs.record_id;
-
-                return (
-                  <div
-                    key={kurs.record_id}
-                    onClick={() => setSelectedKurs(isSelected ? null : kurs)}
-                    className={`rounded-xl border bg-card p-5 cursor-pointer transition-all group ${
-                      isSelected
-                        ? 'border-primary ring-2 ring-primary/20'
-                        : 'border-border hover:border-primary/40 hover:shadow-md'
-                    }`}
-                    style={{ boxShadow: 'var(--shadow-card)' }}
-                  >
-                    {/* top row */}
-                    <div className="flex items-start justify-between gap-2 mb-3">
-                      <div className="flex-1 min-w-0">
-                        <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border mb-2 ${sc.color}`}>
-                          {status === 'active' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
-                          {sc.label}
-                        </span>
-                        <h3 className="font-700 text-base text-foreground leading-snug truncate">
-                          {kurs.fields.titel ?? 'Unbenannter Kurs'}
-                        </h3>
-                        {kurs.fields.beschreibung && (
-                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{kurs.fields.beschreibung}</p>
-                        )}
-                      </div>
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                        <button
-                          onClick={e => openEditKurs(kurs, e)}
-                          className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-                          title="Bearbeiten"
-                        >
-                          <Edit2 size={13} />
-                        </button>
-                        <button
-                          onClick={e => { e.stopPropagation(); setDeleteKursId(kurs.record_id); }}
-                          className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                          title="Löschen"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* meta */}
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground mb-3">
-                      {(kurs.fields.startdatum || kurs.fields.enddatum) && (
-                        <div className="flex items-center gap-1 col-span-2">
-                          <Calendar size={11} />
-                          <span>{formatDate(kurs.fields.startdatum)} – {formatDate(kurs.fields.enddatum)}</span>
-                        </div>
-                      )}
-                      {doz && (
-                        <div className="flex items-center gap-1">
-                          <GraduationCap size={11} />
-                          <span className="truncate">{doz.fields.vorname} {doz.fields.nachname}</span>
-                        </div>
-                      )}
-                      {raum && (
-                        <div className="flex items-center gap-1">
-                          <MapPin size={11} />
-                          <span className="truncate">{raum.fields.raumname}</span>
-                        </div>
-                      )}
-                      {kurs.fields.preis != null && (
-                        <div className="flex items-center gap-1">
-                          <Euro size={11} />
-                          <span>{formatCurrency(kurs.fields.preis)}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* capacity bar */}
-                    {max > 0 && (
-                      <div className="mb-2">
-                        <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                          <span>{regs.length} / {max} Teilnehmer</span>
-                          <span className="text-emerald-600 font-medium">{bezahltCount} bezahlt</span>
-                        </div>
-                        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all"
-                            style={{
-                              width: `${fillPct}%`,
-                              background: fillPct >= 100 ? 'oklch(0.577 0.245 27.325)' : fillPct >= 75 ? 'oklch(0.70 0.18 60)' : 'var(--primary)',
-                            }}
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between pt-1">
-                      <div className="flex gap-1.5">
-                        <span className="inline-flex items-center gap-1 text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">
-                          <Users size={10} />
-                          {regs.length}
-                        </span>
-                        {bezahltCount > 0 && (
-                          <span className="inline-flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-100">
-                            <CheckCircle2 size={10} />
-                            {bezahltCount}
-                          </span>
-                        )}
-                      </div>
-                      <ChevronRight size={14} className={`text-muted-foreground transition-transform ${isSelected ? 'rotate-90 text-primary' : ''}`} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+      {/* Course Grid */}
+      {filteredKurse.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-24 gap-4">
+          <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center">
+            <BookOpen size={24} className="text-muted-foreground" />
+          </div>
+          <div className="text-center">
+            <h3 className="font-600 text-foreground mb-1">
+              {filterSearch || filterStatus !== 'all' ? 'Keine Kurse gefunden' : 'Noch keine Kurse'}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              {filterSearch || filterStatus !== 'all'
+                ? 'Versuche andere Filtereinstellungen'
+                : 'Erstelle deinen ersten Kurs'}
+            </p>
+          </div>
+          {!(filterSearch || filterStatus !== 'all') && (
+            <Button onClick={() => setShowAddKurs(true)} className="gap-2">
+              <Plus size={15} />
+              Ersten Kurs erstellen
+            </Button>
           )}
         </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+          {filteredKurse.map(k => (
+            <KursCard key={k.record_id} kurs={k} onClick={() => setSelectedKurs(k)} />
+          ))}
+        </div>
+      )}
 
-        {/* Detail panel */}
-        {selectedKurs && (
-          <div
-            className="w-full xl:w-[380px] shrink-0 rounded-xl border bg-card overflow-hidden"
-            style={{ boxShadow: 'var(--shadow-card)' }}
-          >
-            {/* Panel header */}
-            <div className="px-5 py-4 border-b" style={{ background: 'var(--gradient-primary)' }}>
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-primary-foreground/70 mb-0.5">Kursdetails</p>
-                  <h2 className="font-700 text-base text-primary-foreground leading-tight">
-                    {selectedKurs.fields.titel ?? 'Kurs'}
-                  </h2>
-                </div>
-                <button
-                  onClick={() => setSelectedKurs(null)}
-                  className="p-1 rounded-md text-primary-foreground/70 hover:text-primary-foreground hover:bg-white/10 transition-colors shrink-0"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            </div>
-
-            {/* Course meta */}
-            <div className="px-5 py-4 border-b space-y-2 text-sm">
-              {(selectedKurs.fields.startdatum || selectedKurs.fields.enddatum) && (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Calendar size={13} className="shrink-0 text-primary" />
-                  <span>{formatDate(selectedKurs.fields.startdatum)} – {formatDate(selectedKurs.fields.enddatum)}</span>
-                </div>
-              )}
-              {selectedDozent && (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <GraduationCap size={13} className="shrink-0 text-primary" />
-                  <span>{selectedDozent.fields.vorname} {selectedDozent.fields.nachname}</span>
-                  {selectedDozent.fields.fachgebiet && <span className="text-xs bg-muted px-1.5 py-0.5 rounded">{selectedDozent.fields.fachgebiet}</span>}
-                </div>
-              )}
-              {selectedRaum && (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <MapPin size={13} className="shrink-0 text-primary" />
-                  <span>{selectedRaum.fields.raumname}</span>
-                  {selectedRaum.fields.gebaeude && <span className="text-muted-foreground/60">· {selectedRaum.fields.gebaeude}</span>}
-                </div>
-              )}
-              {selectedKurs.fields.preis != null && (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Euro size={13} className="shrink-0 text-primary" />
-                  <span>{formatCurrency(selectedKurs.fields.preis)}</span>
-                </div>
-              )}
-              {selectedKurs.fields.max_teilnehmer != null && (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Users size={13} className="shrink-0 text-primary" />
-                  <span>{selectedAnmeldungen.length} / {selectedKurs.fields.max_teilnehmer} Plätze belegt</span>
-                </div>
-              )}
-            </div>
-
-            {/* Registrations list */}
-            <div className="px-5 py-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-600 text-foreground flex items-center gap-1.5">
-                  <ClipboardList size={14} className="text-primary" />
-                  Anmeldungen
-                  <span className="bg-primary/10 text-primary text-xs px-1.5 py-0.5 rounded-full font-semibold">
-                    {selectedAnmeldungen.length}
-                  </span>
-                </h3>
-                <Button size="sm" variant="outline" onClick={openCreateAnmeldung} className="gap-1 h-7 text-xs">
-                  <UserPlus size={12} />
-                  Anmelden
-                </Button>
-              </div>
-
-              {selectedAnmeldungen.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Users size={28} className="mx-auto mb-2 opacity-30" />
-                  <p className="text-sm">Noch keine Anmeldungen</p>
-                  <button onClick={openCreateAnmeldung} className="text-xs text-primary mt-1 hover:underline">
-                    Erste Anmeldung hinzufügen
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                  {selectedAnmeldungen.map(a => (
-                    <div
-                      key={a.record_id}
-                      className="flex items-center gap-3 p-2.5 rounded-lg border border-border hover:bg-accent/50 transition-colors group"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <p className="text-sm font-medium text-foreground truncate">
-                            {a.fields.teilnehmer_vorname} {a.fields.teilnehmer_nachname}
-                          </p>
-                          {a.fields.bezahlt ? (
-                            <Check size={12} className="shrink-0 text-emerald-600" />
-                          ) : (
-                            <Clock size={12} className="shrink-0 text-amber-500" />
-                          )}
-                        </div>
-                        <p className="text-xs text-muted-foreground truncate">{a.fields.teilnehmer_email}</p>
-                        {a.fields.anmeldedatum && (
-                          <p className="text-xs text-muted-foreground/60">{formatDate(a.fields.anmeldedatum)}</p>
-                        )}
-                      </div>
-                      <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                        <button
-                          onClick={() => openEditAnmeldung(a)}
-                          className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
-                        >
-                          <Edit2 size={12} />
-                        </button>
-                        <button
-                          onClick={() => setDeleteAnmeldungId(a.record_id)}
-                          className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ── Kurs Dialog ─────────────────────────────────────────────────────── */}
-      <Dialog open={showKursDialog} onOpenChange={setShowKursDialog}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{editingKurs ? 'Kurs bearbeiten' : 'Neuen Kurs erstellen'}</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="k-titel">Kurstitel</Label>
-              <Input
-                id="k-titel"
-                value={kursForm.titel}
-                onChange={e => setKursForm(f => ({ ...f, titel: e.target.value }))}
-                placeholder="z.B. Grundlagen der Programmierung"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="k-beschr">Beschreibung</Label>
-              <textarea
-                id="k-beschr"
-                value={kursForm.beschreibung}
-                onChange={e => setKursForm(f => ({ ...f, beschreibung: e.target.value }))}
-                placeholder="Kurze Beschreibung des Kursinhalts"
-                rows={2}
-                className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="k-start">Startdatum</Label>
-                <Input
-                  id="k-start"
-                  type="date"
-                  value={kursForm.startdatum}
-                  onChange={e => setKursForm(f => ({ ...f, startdatum: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="k-end">Enddatum</Label>
-                <Input
-                  id="k-end"
-                  type="date"
-                  value={kursForm.enddatum}
-                  onChange={e => setKursForm(f => ({ ...f, enddatum: e.target.value }))}
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="k-max">Max. Teilnehmer</Label>
-                <Input
-                  id="k-max"
-                  type="number"
-                  min="1"
-                  value={kursForm.max_teilnehmer}
-                  onChange={e => setKursForm(f => ({ ...f, max_teilnehmer: e.target.value }))}
-                  placeholder="20"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="k-preis">Preis (EUR)</Label>
-                <Input
-                  id="k-preis"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={kursForm.preis}
-                  onChange={e => setKursForm(f => ({ ...f, preis: e.target.value }))}
-                  placeholder="199.00"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Dozent</Label>
-                <Select value={kursForm.dozent} onValueChange={v => setKursForm(f => ({ ...f, dozent: v }))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Dozent wählen" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Kein Dozent</SelectItem>
-                    {dozenten.map(d => (
-                      <SelectItem key={d.record_id} value={d.record_id}>
-                        {d.fields.vorname} {d.fields.nachname}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Raum</Label>
-                <Select value={kursForm.raum} onValueChange={v => setKursForm(f => ({ ...f, raum: v }))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Raum wählen" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Kein Raum</SelectItem>
-                    {raeume.map(r => (
-                      <SelectItem key={r.record_id} value={r.record_id}>
-                        {r.fields.raumname}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowKursDialog(false)}>Abbrechen</Button>
-            <Button onClick={saveKurs} disabled={saving || !kursForm.titel.trim()}>
-              {saving ? 'Speichert…' : editingKurs ? 'Aktualisieren' : 'Erstellen'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Anmeldung Dialog ────────────────────────────────────────────────── */}
-      <Dialog open={showAnmeldungDialog} onOpenChange={setShowAnmeldungDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{editingAnmeldung ? 'Anmeldung bearbeiten' : 'Neue Anmeldung'}</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-2">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="a-vn">Vorname</Label>
-                <Input
-                  id="a-vn"
-                  value={anmeldungForm.teilnehmer_vorname}
-                  onChange={e => setAnmeldungForm(f => ({ ...f, teilnehmer_vorname: e.target.value }))}
-                  placeholder="Max"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="a-nn">Nachname</Label>
-                <Input
-                  id="a-nn"
-                  value={anmeldungForm.teilnehmer_nachname}
-                  onChange={e => setAnmeldungForm(f => ({ ...f, teilnehmer_nachname: e.target.value }))}
-                  placeholder="Mustermann"
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="a-email">E-Mail</Label>
-              <Input
-                id="a-email"
-                type="email"
-                value={anmeldungForm.teilnehmer_email}
-                onChange={e => setAnmeldungForm(f => ({ ...f, teilnehmer_email: e.target.value }))}
-                placeholder="max@beispiel.de"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="a-tel">Telefon</Label>
-              <Input
-                id="a-tel"
-                type="tel"
-                value={anmeldungForm.teilnehmer_telefon}
-                onChange={e => setAnmeldungForm(f => ({ ...f, teilnehmer_telefon: e.target.value }))}
-                placeholder="+49 123 456789"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="a-date">Anmeldedatum</Label>
-              <Input
-                id="a-date"
-                type="date"
-                value={anmeldungForm.anmeldedatum}
-                onChange={e => setAnmeldungForm(f => ({ ...f, anmeldedatum: e.target.value }))}
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setAnmeldungForm(f => ({ ...f, bezahlt: !f.bezahlt }))}
-                className={`relative w-10 h-5 rounded-full transition-colors ${anmeldungForm.bezahlt ? 'bg-primary' : 'bg-muted'}`}
-              >
-                <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform shadow-sm ${anmeldungForm.bezahlt ? 'translate-x-5' : 'translate-x-0.5'}`} />
-              </button>
-              <Label className="cursor-pointer" onClick={() => setAnmeldungForm(f => ({ ...f, bezahlt: !f.bezahlt }))}>
-                Bezahlt
-              </Label>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAnmeldungDialog(false)}>Abbrechen</Button>
-            <Button onClick={saveAnmeldung} disabled={saving}>
-              {saving ? 'Speichert…' : editingAnmeldung ? 'Aktualisieren' : 'Anmelden'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Delete confirmations ─────────────────────────────────────────────── */}
-      <AlertDialog open={!!deleteKursId} onOpenChange={o => !o && setDeleteKursId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Kurs löschen?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Dieser Kurs wird unwiderruflich gelöscht. Alle zugehörigen Anmeldungen bleiben erhalten.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-            <AlertDialogAction onClick={deleteKurs} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Löschen
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={!!deleteAnmeldungId} onOpenChange={o => !o && setDeleteAnmeldungId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Anmeldung löschen?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Diese Anmeldung wird unwiderruflich gelöscht.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-            <AlertDialogAction onClick={deleteAnmeldung} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Löschen
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Dialogs */}
+      {selectedKurs && (
+        <EnrollmentDialog
+          kurs={selectedKurs}
+          anmeldungen={selectedKurs.anmeldungen}
+          teilnehmerList={teilnehmer}
+          onClose={() => setSelectedKurs(null)}
+          onAdd={handleAddAnmeldung}
+          onDelete={handleDeleteAnmeldung}
+        />
+      )}
+      {showAddKurs && (
+        <AddKursDialog
+          dozenten={dozenten}
+          raeume={raeume}
+          onClose={() => setShowAddKurs(false)}
+          onSave={handleAddKurs}
+        />
+      )}
     </div>
   );
 }
