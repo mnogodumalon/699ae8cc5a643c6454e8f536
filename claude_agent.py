@@ -117,6 +117,7 @@ async def main():
                 "- No Read-back after Write/Edit\n"
                 "- No Read of files whose contents are in .scaffold_context\n"
                 "- Read .scaffold_context FIRST to understand all generated files\n"
+                "- useDashboardData.ts, enriched.ts, enrich.ts, formatters.ts: NEVER touch — use as-is\n"
                 "- Dashboard is the PRIMARY WORKSPACE — build interactive domain-specific UI, not an info page\n"
                 "- NEVER use TodoWrite — no task lists, no planning, just implement directly"
             ),

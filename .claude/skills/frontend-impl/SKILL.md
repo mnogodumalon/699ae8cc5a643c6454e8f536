@@ -93,7 +93,13 @@ Then call `mcp__deploy_tools__deploy_to_github`
 
 CRUD sub-pages, dialogs, routing, sidebar, and shared components are pre-generated. Changing CSS variables in `index.css` automatically updates their appearance.
 
-**DO NOT touch:** CRUD pages, dialogs, App.tsx, PageShell.tsx, StatCard.tsx, ConfirmDialog.tsx.
+**DO NOT touch:** CRUD pages, dialogs, App.tsx, PageShell.tsx, StatCard.tsx, ConfirmDialog.tsx, useDashboardData.ts, enriched.ts, enrich.ts, formatters.ts.
+
+**Already available in DashboardOverview.tsx:**
+- `useDashboardData()` — all entities loaded, lookup maps built, loading/error handled
+- `enrichX()` — applookup fields resolved to display name strings
+- `formatDate()`, `formatCurrency()` — locale-aware formatting
+- Loading skeleton and error state with retry
 
 ---
 
@@ -204,7 +210,7 @@ const dateForAPI = formData.date + 'T12:00'; // YYYY-MM-DDTHH:MM only
 
 ### Technical
 - [ ] `npm run build` passes
-- [ ] All states handled: loading (Skeleton), empty, error
+- [ ] Empty state handled (loading/error are pre-generated)
 - [ ] No hardcoded demo data
 - [ ] Responsive: mobile and desktop layouts
 
@@ -241,57 +247,28 @@ Returns **object**, NOT array. Use `Object.entries()` to extract `record_id`.
 
 ---
 
-## Data Fetching Pattern
+## Data Access (pre-generated — do NOT rewrite)
+
+All data fetching, lookup maps, and enrichment are pre-generated. In DashboardOverview.tsx:
 
 ```typescript
-import { useState, useEffect } from 'react';
-import type { Workout } from '@/types/app';
-import { LivingAppsService } from '@/services/livingAppsService';
-
-function Dashboard() {
-  const [data, setData] = useState<Workout[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        const result = await LivingAppsService.getWorkouts();
-        setData(result);
-      } catch (err) {
-        setError(err instanceof Error ? err : new Error('Unknown error'));
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchData();
-  }, []);
-
-  if (loading) return <LoadingState />;
-  if (error) return <ErrorState error={error} />;
-  if (data.length === 0) return <EmptyState />;
-
-  return <DashboardContent data={data} />;
-}
+// Already in the skeleton — just use the data:
+const { kurse, anmeldungen, dozentenMap, loading, error, fetchAll } = useDashboardData();
+const enrichedKurse = enrichKurse(kurse, dozentenMap, raeumeMap);
 ```
 
-## Relationship Handling (applookup)
+For CRUD after user actions:
 
 ```typescript
-import { extractRecordId } from '@/services/livingAppsService';
+const handleCreate = async (fields) => {
+  await LivingAppsService.createKurseEntry(fields);
+  fetchAll();
+};
 
-const exerciseMap = useMemo(() => {
-  const map = new Map<string, Exercise>();
-  exercises.forEach(ex => map.set(ex.record_id, ex));
-  return map;
-}, [exercises]);
-
-const enriched = useMemo(() => {
-  return workouts.map(w => {
-    const id = extractRecordId(w.fields.exercise);
-    return { ...w, exercise: id ? exerciseMap.get(id) : null };
-  });
-}, [workouts, exerciseMap]);
+const handleDelete = async (id: string) => {
+  await LivingAppsService.deleteKurseEntry(id);
+  fetchAll();
+};
 ```
 
 ## Chart Pattern (recharts)
@@ -316,26 +293,11 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'rec
 - **lucide-react** — icons
 - **date-fns** — date formatting with `de` locale
 
-## Date Formatting
+## Formatting (pre-generated — just import)
 
 ```typescript
-import { format, parseISO, formatDistance } from 'date-fns';
-import { de } from 'date-fns/locale';
+import { formatDate, formatCurrency } from '@/lib/formatters';
 
-format(parseISO(record.createdat), 'dd.MM.yyyy', { locale: de });
-formatDistance(parseISO(record.createdat), new Date(), { addSuffix: true, locale: de });
-```
-
-## Number Formatting
-
-```typescript
-function formatNumber(value: number | null | undefined): string {
-  if (value == null) return '-';
-  return new Intl.NumberFormat('de-DE').format(value);
-}
-
-function formatCurrency(value: number | null | undefined): string {
-  if (value == null) return '-';
-  return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(value);
-}
+formatDate(record.fields.startdatum);     // "06.11.2025" or "Nov 6, 2025"
+formatCurrency(record.fields.preis);      // "199,00 €" or "$199.00"
 ```

@@ -37,7 +37,11 @@ The following files are **pre-generated** and provide a complete React Router ap
 - `src/App.tsx` — BrowserRouter with all routes configured
 - `src/components/Layout.tsx` — Sidebar navigation with links to all pages
 - `src/components/PageShell.tsx` — Consistent page header wrapper
-- `src/pages/DashboardOverview.tsx` — Empty shell (**you build this!**)
+- `src/pages/DashboardOverview.tsx` — Skeleton with data hook, enrichment, loading/error (**you fill the content!**)
+- `src/hooks/useDashboardData.ts` — Central hook: fetches all entities, provides lookup maps, loading/error state
+- `src/types/enriched.ts` — Enriched types with resolved display names (e.g. `EnrichedKurse` with `dozentName`)
+- `src/lib/enrich.ts` — `enrichX()` functions to resolve applookup fields to display names
+- `src/lib/formatters.ts` — `formatDate()` and `formatCurrency()` (locale-aware)
 - `src/pages/{Entity}Page.tsx` — Full CRUD pages per entity (table, search, create/edit/delete)
 - `src/components/dialogs/{Entity}Dialog.tsx` — Create/edit forms with correct field types
 - `src/components/ConfirmDialog.tsx` — Delete confirmation
@@ -51,9 +55,10 @@ The CRUD pages provide basic list-based CRUD as a fallback. **Your job is to bui
 
 ### Rules for Pre-Generated Files
 
-- **DashboardOverview.tsx** — You MUST call `Read("src/pages/DashboardOverview.tsx")` FIRST. Then call `Write` ONCE with the complete new content. Do NOT read it back after writing. Do NOT use Bash cat/echo — use ONLY Read and Write tools.
+- **DashboardOverview.tsx** — You MUST call `Read("src/pages/DashboardOverview.tsx")` FIRST. Then call `Write` ONCE with the complete new content. Do NOT read it back after writing. Do NOT use Bash cat/echo — use ONLY Read and Write tools. The skeleton already has `useDashboardData()`, enrichment, loading/error — keep that pattern, replace the empty content div.
 - **index.css** — NEVER Write, only Edit. Pre-generated with correct import order.
 - **Layout.tsx** — NEVER Write, only Edit (title/subtitle only).
+- **useDashboardData.ts, enriched.ts, enrich.ts, formatters.ts** — NEVER touch. Use as-is.
 - **CRUD pages and dialogs** — NEVER touch. Complete with all logic.
 - **App.tsx** — NEVER touch. Routes are pre-configured.
 - **PageShell.tsx, StatCard.tsx, ConfirmDialog.tsx** — NEVER touch.
@@ -63,8 +68,11 @@ The CRUD pages provide basic list-based CRUD as a fallback. **Your job is to bui
 - All UI text auto-detected in correct language (German/English)
 - PageShell wrapper with consistent headers on all pages
 - Layout with sidebar using semantic tokens (bg-sidebar, text-sidebar-foreground, etc.)
-- Date formatting with date-fns (German dd.MM.yyyy / English MMM d, yyyy)
-- Applookup fields resolved to display names
+- Date formatting via `formatDate()` in `src/lib/formatters.ts`
+- Currency formatting via `formatCurrency()` in `src/lib/formatters.ts`
+- Applookup fields resolved to display names via `enrichX()` in `src/lib/enrich.ts`
+- Data fetching + lookup maps via `useDashboardData()` hook
+- Loading/error states in DashboardOverview.tsx
 - Boolean fields with styled badges
 - Search, create, edit, delete with confirm dialog
 - React Router with BrowserRouter and correct basename for GitHub Pages
@@ -79,7 +87,11 @@ The CRUD pages provide basic list-based CRUD as a fallback. **Your job is to bui
 | Path | Content |
 |------|---------|
 | `src/types/app.ts` | TypeScript interfaces, APP_IDS |
+| `src/types/enriched.ts` | Enriched types with resolved display names |
 | `src/services/livingAppsService.ts` | API Service with typed CRUD methods |
+| `src/hooks/useDashboardData.ts` | Central data hook (fetch, maps, loading/error) |
+| `src/lib/enrich.ts` | `enrichX()` functions for applookup resolution |
+| `src/lib/formatters.ts` | `formatDate()`, `formatCurrency()` (locale-aware) |
 | `src/App.tsx` | React Router with all routes |
 | `src/components/Layout.tsx` | Sidebar navigation |
 | `src/components/PageShell.tsx` | Page header wrapper |
@@ -140,35 +152,25 @@ import type { Habit } from '@/types/app';
 <SelectItem value="none">None</SelectItem>
 ```
 
-### Building with the API
+### Using the Data Hook
+
+Data fetching is pre-generated. Use the `useDashboardData()` hook in DashboardOverview.tsx:
 
 ```typescript
-import { LivingAppsService, extractRecordId, createRecordUrl } from '@/services/livingAppsService';
-import { APP_IDS } from '@/types/app';
-import type { Habit } from '@/types/app';
+const { habits, enrichedHabits, loading, error, fetchAll } = useDashboardData();
+```
 
-const [habits, setHabits] = useState<Habit[]>([]);
-const [loading, setLoading] = useState(true);
+For CRUD operations, call `LivingAppsService` then refresh:
 
-useEffect(() => {
-  LivingAppsService.getHabits()
-    .then(setHabits)
-    .finally(() => setLoading(false));
-}, []);
-
+```typescript
 const handleAdd = async (data) => {
-  const created = await LivingAppsService.createHabit(data);
-  setHabits(prev => [...prev, created]);
-};
-
-const handleUpdate = async (id, data) => {
-  await LivingAppsService.updateHabit(id, data);
-  setHabits(await LivingAppsService.getHabits());
+  await LivingAppsService.createHabit(data);
+  fetchAll();
 };
 
 const handleDelete = async (id) => {
   await LivingAppsService.deleteHabit(id);
-  setHabits(prev => prev.filter(h => h.record_id !== id));
+  fetchAll();
 };
 ```
 
