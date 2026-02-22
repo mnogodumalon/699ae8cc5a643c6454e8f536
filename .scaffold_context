@@ -534,37 +534,49 @@ function resolveDisplay(url: string | undefined, map: Map<string, any>, ...field
   return fields.map(f => String(r.fields[f] ?? '')).join(' ').trim();
 }
 
+interface KurseMaps {
+  dozentenMap: Map<string, Dozenten>;
+  raeumeMap: Map<string, Raeume>;
+}
+
 export function enrichKurse(
   kurse: Kurse[],
-  dozentenMap: Map<string, Dozenten>,
-  raeumeMap: Map<string, Raeume>
+  maps: KurseMaps
 ): EnrichedKurse[] {
   return kurse.map(r => ({
     ...r,
-    dozentName: resolveDisplay(r.fields.dozent, dozentenMap, 'vorname', 'nachname'),
-    raumName: resolveDisplay(r.fields.raum, raeumeMap, 'raumname'),
+    dozentName: resolveDisplay(r.fields.dozent, maps.dozentenMap, 'vorname', 'nachname'),
+    raumName: resolveDisplay(r.fields.raum, maps.raeumeMap, 'raumname'),
   }));
+}
+
+interface KursanmeldungMaps {
+  kurseMap: Map<string, Kurse>;
 }
 
 export function enrichKursanmeldung(
   kursanmeldung: Kursanmeldung[],
-  kurseMap: Map<string, Kurse>
+  maps: KursanmeldungMaps
 ): EnrichedKursanmeldung[] {
   return kursanmeldung.map(r => ({
     ...r,
-    kursName: resolveDisplay(r.fields.kurs, kurseMap, 'titel'),
+    kursName: resolveDisplay(r.fields.kurs, maps.kurseMap, 'titel'),
   }));
+}
+
+interface AnmeldungenMaps {
+  teilnehmerMap: Map<string, Teilnehmer>;
+  kurseMap: Map<string, Kurse>;
 }
 
 export function enrichAnmeldungen(
   anmeldungen: Anmeldungen[],
-  teilnehmerMap: Map<string, Teilnehmer>,
-  kurseMap: Map<string, Kurse>
+  maps: AnmeldungenMaps
 ): EnrichedAnmeldungen[] {
   return anmeldungen.map(r => ({
     ...r,
-    teilnehmerName: resolveDisplay(r.fields.teilnehmer, teilnehmerMap, 'vorname', 'nachname'),
-    kursName: resolveDisplay(r.fields.kurs, kurseMap, 'titel'),
+    teilnehmerName: resolveDisplay(r.fields.teilnehmer, maps.teilnehmerMap, 'vorname', 'nachname'),
+    kursName: resolveDisplay(r.fields.kurs, maps.kurseMap, 'titel'),
   }));
 }
 
