@@ -1,6 +1,6 @@
 // AUTOMATICALLY GENERATED SERVICE
 import { APP_IDS } from '@/types/app';
-import type { Dozenten, Raeume, Kurse, Teilnehmer, Anmeldungen, Kursanmeldung } from '@/types/app';
+import type { Kurse, Teilnehmer, Kursanmeldung, Dozenten, Raeume, Anmeldungen } from '@/types/app';
 
 // Base Configuration
 const API_BASE_URL = 'https://my.living-apps.de/rest';
@@ -31,48 +31,6 @@ async function callApi(method: string, endpoint: string, data?: any) {
 }
 
 export class LivingAppsService {
-  // --- DOZENTEN ---
-  static async getDozenten(): Promise<Dozenten[]> {
-    const data = await callApi('GET', `/apps/${APP_IDS.DOZENTEN}/records`);
-    return Object.entries(data).map(([id, rec]: [string, any]) => ({
-      record_id: id, ...rec
-    }));
-  }
-  static async getDozentenEntry(id: string): Promise<Dozenten | undefined> {
-    const data = await callApi('GET', `/apps/${APP_IDS.DOZENTEN}/records/${id}`);
-    return { record_id: data.id, ...data };
-  }
-  static async createDozentenEntry(fields: Dozenten['fields']) {
-    return callApi('POST', `/apps/${APP_IDS.DOZENTEN}/records`, { fields });
-  }
-  static async updateDozentenEntry(id: string, fields: Partial<Dozenten['fields']>) {
-    return callApi('PATCH', `/apps/${APP_IDS.DOZENTEN}/records/${id}`, { fields });
-  }
-  static async deleteDozentenEntry(id: string) {
-    return callApi('DELETE', `/apps/${APP_IDS.DOZENTEN}/records/${id}`);
-  }
-
-  // --- RAEUME ---
-  static async getRaeume(): Promise<Raeume[]> {
-    const data = await callApi('GET', `/apps/${APP_IDS.RAEUME}/records`);
-    return Object.entries(data).map(([id, rec]: [string, any]) => ({
-      record_id: id, ...rec
-    }));
-  }
-  static async getRaeumeEntry(id: string): Promise<Raeume | undefined> {
-    const data = await callApi('GET', `/apps/${APP_IDS.RAEUME}/records/${id}`);
-    return { record_id: data.id, ...data };
-  }
-  static async createRaeumeEntry(fields: Raeume['fields']) {
-    return callApi('POST', `/apps/${APP_IDS.RAEUME}/records`, { fields });
-  }
-  static async updateRaeumeEntry(id: string, fields: Partial<Raeume['fields']>) {
-    return callApi('PATCH', `/apps/${APP_IDS.RAEUME}/records/${id}`, { fields });
-  }
-  static async deleteRaeumeEntry(id: string) {
-    return callApi('DELETE', `/apps/${APP_IDS.RAEUME}/records/${id}`);
-  }
-
   // --- KURSE ---
   static async getKurse(): Promise<Kurse[]> {
     const data = await callApi('GET', `/apps/${APP_IDS.KURSE}/records`);
@@ -115,27 +73,6 @@ export class LivingAppsService {
     return callApi('DELETE', `/apps/${APP_IDS.TEILNEHMER}/records/${id}`);
   }
 
-  // --- ANMELDUNGEN ---
-  static async getAnmeldungen(): Promise<Anmeldungen[]> {
-    const data = await callApi('GET', `/apps/${APP_IDS.ANMELDUNGEN}/records`);
-    return Object.entries(data).map(([id, rec]: [string, any]) => ({
-      record_id: id, ...rec
-    }));
-  }
-  static async getAnmeldungenEntry(id: string): Promise<Anmeldungen | undefined> {
-    const data = await callApi('GET', `/apps/${APP_IDS.ANMELDUNGEN}/records/${id}`);
-    return { record_id: data.id, ...data };
-  }
-  static async createAnmeldungenEntry(fields: Anmeldungen['fields']) {
-    return callApi('POST', `/apps/${APP_IDS.ANMELDUNGEN}/records`, { fields });
-  }
-  static async updateAnmeldungenEntry(id: string, fields: Partial<Anmeldungen['fields']>) {
-    return callApi('PATCH', `/apps/${APP_IDS.ANMELDUNGEN}/records/${id}`, { fields });
-  }
-  static async deleteAnmeldungenEntry(id: string) {
-    return callApi('DELETE', `/apps/${APP_IDS.ANMELDUNGEN}/records/${id}`);
-  }
-
   // --- KURSANMELDUNG ---
   static async getKursanmeldung(): Promise<Kursanmeldung[]> {
     const data = await callApi('GET', `/apps/${APP_IDS.KURSANMELDUNG}/records`);
@@ -155,6 +92,69 @@ export class LivingAppsService {
   }
   static async deleteKursanmeldungEntry(id: string) {
     return callApi('DELETE', `/apps/${APP_IDS.KURSANMELDUNG}/records/${id}`);
+  }
+
+  // --- DOZENTEN ---
+  static async getDozenten(): Promise<Dozenten[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.DOZENTEN}/records`);
+    return Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec
+    }));
+  }
+  static async getDozentenEntry(id: string): Promise<Dozenten | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.DOZENTEN}/records/${id}`);
+    return { record_id: data.id, ...data };
+  }
+  static async createDozentenEntry(fields: Dozenten['fields']) {
+    return callApi('POST', `/apps/${APP_IDS.DOZENTEN}/records`, { fields });
+  }
+  static async updateDozentenEntry(id: string, fields: Partial<Dozenten['fields']>) {
+    return callApi('PATCH', `/apps/${APP_IDS.DOZENTEN}/records/${id}`, { fields });
+  }
+  static async deleteDozentenEntry(id: string) {
+    return callApi('DELETE', `/apps/${APP_IDS.DOZENTEN}/records/${id}`);
+  }
+
+  // --- RAEUME ---
+  static async getRaeume(): Promise<Raeume[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.RAEUME}/records`);
+    return Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec
+    }));
+  }
+  static async getRaeumeEntry(id: string): Promise<Raeume | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.RAEUME}/records/${id}`);
+    return { record_id: data.id, ...data };
+  }
+  static async createRaeumeEntry(fields: Raeume['fields']) {
+    return callApi('POST', `/apps/${APP_IDS.RAEUME}/records`, { fields });
+  }
+  static async updateRaeumeEntry(id: string, fields: Partial<Raeume['fields']>) {
+    return callApi('PATCH', `/apps/${APP_IDS.RAEUME}/records/${id}`, { fields });
+  }
+  static async deleteRaeumeEntry(id: string) {
+    return callApi('DELETE', `/apps/${APP_IDS.RAEUME}/records/${id}`);
+  }
+
+  // --- ANMELDUNGEN ---
+  static async getAnmeldungen(): Promise<Anmeldungen[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.ANMELDUNGEN}/records`);
+    return Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec
+    }));
+  }
+  static async getAnmeldungenEntry(id: string): Promise<Anmeldungen | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.ANMELDUNGEN}/records/${id}`);
+    return { record_id: data.id, ...data };
+  }
+  static async createAnmeldungenEntry(fields: Anmeldungen['fields']) {
+    return callApi('POST', `/apps/${APP_IDS.ANMELDUNGEN}/records`, { fields });
+  }
+  static async updateAnmeldungenEntry(id: string, fields: Partial<Anmeldungen['fields']>) {
+    return callApi('PATCH', `/apps/${APP_IDS.ANMELDUNGEN}/records/${id}`, { fields });
+  }
+  static async deleteAnmeldungenEntry(id: string) {
+    return callApi('DELETE', `/apps/${APP_IDS.ANMELDUNGEN}/records/${id}`);
   }
 
 }

@@ -1,0 +1,425 @@
+# Scaffold Context — Generated File Contents
+
+These files are pre-generated. Do NOT Read them — their contents are below.
+EXCEPTION: DashboardOverview.tsx is NOT included here. You MUST Read it with the Read tool before Write.
+Your job: Analyze data (1-2 sentences), Edit index.css (design tokens), Edit Layout.tsx (title), Read then Write DashboardOverview.tsx (once), Deploy.
+NEVER use Bash cat/echo/heredoc for file operations — always use Read/Write/Edit tools.
+
+Generated 18 scaffold files:
+  - src/App.tsx
+  - src/components/Layout.tsx
+  - src/components/PageShell.tsx
+  - src/pages/DashboardOverview.tsx
+  - src/components/ConfirmDialog.tsx
+  - src/components/StatCard.tsx
+  - src/pages/KursePage.tsx
+  - src/components/dialogs/KurseDialog.tsx
+  - src/pages/TeilnehmerPage.tsx
+  - src/components/dialogs/TeilnehmerDialog.tsx
+  - src/pages/KursanmeldungPage.tsx
+  - src/components/dialogs/KursanmeldungDialog.tsx
+  - src/pages/DozentenPage.tsx
+  - src/components/dialogs/DozentenDialog.tsx
+  - src/pages/RaeumePage.tsx
+  - src/components/dialogs/RaeumeDialog.tsx
+  - src/pages/AnmeldungenPage.tsx
+  - src/components/dialogs/AnmeldungenDialog.tsx
+
+## src/types/app.ts
+```
+// AUTOMATICALLY GENERATED TYPES - DO NOT EDIT
+
+export interface Kurse {
+  record_id: string;
+  createdat: string;
+  updatedat: string | null;
+  fields: {
+    titel?: string;
+    beschreibung?: string;
+    startdatum?: string; // Format: YYYY-MM-DD oder ISO String
+    enddatum?: string; // Format: YYYY-MM-DD oder ISO String
+    max_teilnehmer?: number;
+    preis?: number;
+    dozent?: string; // applookup -> URL zu 'Dozenten' Record
+    raum?: string; // applookup -> URL zu 'Raeume' Record
+  };
+}
+
+export interface Teilnehmer {
+  record_id: string;
+  createdat: string;
+  updatedat: string | null;
+  fields: {
+    vorname?: string;
+    nachname?: string;
+    email?: string;
+    telefon?: string;
+    geburtsdatum?: string; // Format: YYYY-MM-DD oder ISO String
+  };
+}
+
+export interface Kursanmeldung {
+  record_id: string;
+  createdat: string;
+  updatedat: string | null;
+  fields: {
+    kurs?: string; // applookup -> URL zu 'Kurse' Record
+    teilnehmer_vorname?: string;
+    teilnehmer_nachname?: string;
+    teilnehmer_email?: string;
+    teilnehmer_telefon?: string;
+    teilnehmer_geburtsdatum?: string; // Format: YYYY-MM-DD oder ISO String
+    anmeldedatum?: string; // Format: YYYY-MM-DD oder ISO String
+    bezahlt?: boolean;
+  };
+}
+
+export interface Dozenten {
+  record_id: string;
+  createdat: string;
+  updatedat: string | null;
+  fields: {
+    vorname?: string;
+    nachname?: string;
+    email?: string;
+    telefon?: string;
+    fachgebiet?: string;
+  };
+}
+
+export interface Raeume {
+  record_id: string;
+  createdat: string;
+  updatedat: string | null;
+  fields: {
+    raumname?: string;
+    gebaeude?: string;
+    kapazitaet?: number;
+  };
+}
+
+export interface Anmeldungen {
+  record_id: string;
+  createdat: string;
+  updatedat: string | null;
+  fields: {
+    teilnehmer?: string; // applookup -> URL zu 'Teilnehmer' Record
+    kurs?: string; // applookup -> URL zu 'Kurse' Record
+    anmeldedatum?: string; // Format: YYYY-MM-DD oder ISO String
+    bezahlt?: boolean;
+  };
+}
+
+export const APP_IDS = {
+  KURSE: '699ae8b18700a39d668ef868',
+  TEILNEHMER: '699ae8b1c9d1cbfb6fca882e',
+  KURSANMELDUNG: '699ae8b2260a2e5209ebfa1f',
+  DOZENTEN: '699ae8aa3c91c2ef115da050',
+  RAEUME: '699ae8b09300bacb8903a84c',
+  ANMELDUNGEN: '699ae8b2ae2a43295a0c2d3a',
+} as const;
+
+// Helper Types for creating new records
+export type CreateKurse = Kurse['fields'];
+export type CreateTeilnehmer = Teilnehmer['fields'];
+export type CreateKursanmeldung = Kursanmeldung['fields'];
+export type CreateDozenten = Dozenten['fields'];
+export type CreateRaeume = Raeume['fields'];
+export type CreateAnmeldungen = Anmeldungen['fields'];
+```
+
+## src/services/livingAppsService.ts
+```
+// AUTOMATICALLY GENERATED SERVICE
+import { APP_IDS } from '@/types/app';
+import type { Kurse, Teilnehmer, Kursanmeldung, Dozenten, Raeume, Anmeldungen } from '@/types/app';
+
+// Base Configuration
+const API_BASE_URL = 'https://my.living-apps.de/rest';
+
+// --- HELPER FUNCTIONS ---
+export function extractRecordId(url: string | null | undefined): string | null {
+  if (!url) return null;
+  // Extrahiere die letzten 24 Hex-Zeichen mit Regex
+  const match = url.match(/([a-f0-9]{24})$/i);
+  return match ? match[1] : null;
+}
+
+export function createRecordUrl(appId: string, recordId: string): string {
+  return `https://my.living-apps.de/rest/apps/${appId}/records/${recordId}`;
+}
+
+async function callApi(method: string, endpoint: string, data?: any) {
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',  // Nutze Session Cookies für Auth
+    body: data ? JSON.stringify(data) : undefined
+  });
+  if (!response.ok) throw new Error(await response.text());
+  // DELETE returns often empty body or simple status
+  if (method === 'DELETE') return true;
+  return response.json();
+}
+
+export class LivingAppsService {
+  // --- KURSE ---
+  static async getKurse(): Promise<Kurse[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.KURSE}/records`);
+    return Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec
+    }));
+  }
+  static async getKurseEntry(id: string): Promise<Kurse | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.KURSE}/records/${id}`);
+    return { record_id: data.id, ...data };
+  }
+  static async createKurseEntry(fields: Kurse['fields']) {
+    return callApi('POST', `/apps/${APP_IDS.KURSE}/records`, { fields });
+  }
+  static async updateKurseEntry(id: string, fields: Partial<Kurse['fields']>) {
+    return callApi('PATCH', `/apps/${APP_IDS.KURSE}/records/${id}`, { fields });
+  }
+  static async deleteKurseEntry(id: string) {
+    return callApi('DELETE', `/apps/${APP_IDS.KURSE}/records/${id}`);
+  }
+
+  // --- TEILNEHMER ---
+  static async getTeilnehmer(): Promise<Teilnehmer[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.TEILNEHMER}/records`);
+    return Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec
+    }));
+  }
+  static async getTeilnehmerEntry(id: string): Promise<Teilnehmer | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.TEILNEHMER}/records/${id}`);
+    return { record_id: data.id, ...data };
+  }
+  static async createTeilnehmerEntry(fields: Teilnehmer['fields']) {
+    return callApi('POST', `/apps/${APP_IDS.TEILNEHMER}/records`, { fields });
+  }
+  static async updateTeilnehmerEntry(id: string, fields: Partial<Teilnehmer['fields']>) {
+    return callApi('PATCH', `/apps/${APP_IDS.TEILNEHMER}/records/${id}`, { fields });
+  }
+  static async deleteTeilnehmerEntry(id: string) {
+    return callApi('DELETE', `/apps/${APP_IDS.TEILNEHMER}/records/${id}`);
+  }
+
+  // --- KURSANMELDUNG ---
+  static async getKursanmeldung(): Promise<Kursanmeldung[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.KURSANMELDUNG}/records`);
+    return Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec
+    }));
+  }
+  static async getKursanmeldungEntry(id: string): Promise<Kursanmeldung | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.KURSANMELDUNG}/records/${id}`);
+    return { record_id: data.id, ...data };
+  }
+  static async createKursanmeldungEntry(fields: Kursanmeldung['fields']) {
+    return callApi('POST', `/apps/${APP_IDS.KURSANMELDUNG}/records`, { fields });
+  }
+  static async updateKursanmeldungEntry(id: string, fields: Partial<Kursanmeldung['fields']>) {
+    return callApi('PATCH', `/apps/${APP_IDS.KURSANMELDUNG}/records/${id}`, { fields });
+  }
+  static async deleteKursanmeldungEntry(id: string) {
+    return callApi('DELETE', `/apps/${APP_IDS.KURSANMELDUNG}/records/${id}`);
+  }
+
+  // --- DOZENTEN ---
+  static async getDozenten(): Promise<Dozenten[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.DOZENTEN}/records`);
+    return Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec
+    }));
+  }
+  static async getDozentenEntry(id: string): Promise<Dozenten | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.DOZENTEN}/records/${id}`);
+    return { record_id: data.id, ...data };
+  }
+  static async createDozentenEntry(fields: Dozenten['fields']) {
+    return callApi('POST', `/apps/${APP_IDS.DOZENTEN}/records`, { fields });
+  }
+  static async updateDozentenEntry(id: string, fields: Partial<Dozenten['fields']>) {
+    return callApi('PATCH', `/apps/${APP_IDS.DOZENTEN}/records/${id}`, { fields });
+  }
+  static async deleteDozentenEntry(id: string) {
+    return callApi('DELETE', `/apps/${APP_IDS.DOZENTEN}/records/${id}`);
+  }
+
+  // --- RAEUME ---
+  static async getRaeume(): Promise<Raeume[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.RAEUME}/records`);
+    return Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec
+    }));
+  }
+  static async getRaeumeEntry(id: string): Promise<Raeume | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.RAEUME}/records/${id}`);
+    return { record_id: data.id, ...data };
+  }
+  static async createRaeumeEntry(fields: Raeume['fields']) {
+    return callApi('POST', `/apps/${APP_IDS.RAEUME}/records`, { fields });
+  }
+  static async updateRaeumeEntry(id: string, fields: Partial<Raeume['fields']>) {
+    return callApi('PATCH', `/apps/${APP_IDS.RAEUME}/records/${id}`, { fields });
+  }
+  static async deleteRaeumeEntry(id: string) {
+    return callApi('DELETE', `/apps/${APP_IDS.RAEUME}/records/${id}`);
+  }
+
+  // --- ANMELDUNGEN ---
+  static async getAnmeldungen(): Promise<Anmeldungen[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.ANMELDUNGEN}/records`);
+    return Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec
+    }));
+  }
+  static async getAnmeldungenEntry(id: string): Promise<Anmeldungen | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.ANMELDUNGEN}/records/${id}`);
+    return { record_id: data.id, ...data };
+  }
+  static async createAnmeldungenEntry(fields: Anmeldungen['fields']) {
+    return callApi('POST', `/apps/${APP_IDS.ANMELDUNGEN}/records`, { fields });
+  }
+  static async updateAnmeldungenEntry(id: string, fields: Partial<Anmeldungen['fields']>) {
+    return callApi('PATCH', `/apps/${APP_IDS.ANMELDUNGEN}/records/${id}`, { fields });
+  }
+  static async deleteAnmeldungenEntry(id: string) {
+    return callApi('DELETE', `/apps/${APP_IDS.ANMELDUNGEN}/records/${id}`);
+  }
+
+}
+```
+
+## src/App.tsx
+```
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { Layout } from '@/components/Layout';
+import DashboardOverview from '@/pages/DashboardOverview';
+import KursePage from '@/pages/KursePage';
+import TeilnehmerPage from '@/pages/TeilnehmerPage';
+import KursanmeldungPage from '@/pages/KursanmeldungPage';
+import DozentenPage from '@/pages/DozentenPage';
+import RaeumePage from '@/pages/RaeumePage';
+import AnmeldungenPage from '@/pages/AnmeldungenPage';
+
+export default function App() {
+  return (
+    <BrowserRouter basename={import.meta.env.BASE_URL}>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route index element={<DashboardOverview />} />
+          <Route path="kurse" element={<KursePage />} />
+          <Route path="teilnehmer" element={<TeilnehmerPage />} />
+          <Route path="kursanmeldung" element={<KursanmeldungPage />} />
+          <Route path="dozenten" element={<DozentenPage />} />
+          <Route path="raeume" element={<RaeumePage />} />
+          <Route path="anmeldungen" element={<AnmeldungenPage />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  );
+}
+```
+
+## src/components/Layout.tsx
+```
+import { NavLink, Outlet } from 'react-router-dom';
+import { BookOpen, ClipboardList, DoorOpen, GraduationCap, LayoutDashboard, Menu, Users, X } from 'lucide-react';
+import { useState } from 'react';
+
+// ⚡ Customize these for your app
+const APP_TITLE = 'Dashboard';
+const APP_SUBTITLE = 'Verwaltung';
+
+const navigation = [
+  { name: 'Übersicht', href: '/', icon: LayoutDashboard },
+  { name: 'Kurse', href: '/kurse', icon: BookOpen },
+  { name: 'Teilnehmer', href: '/teilnehmer', icon: Users },
+  { name: 'Kursanmeldung', href: '/kursanmeldung', icon: BookOpen },
+  { name: 'Dozenten', href: '/dozenten', icon: GraduationCap },
+  { name: 'Räume', href: '/raeume', icon: DoorOpen },
+  { name: 'Anmeldungen', href: '/anmeldungen', icon: ClipboardList },
+];
+
+export function Layout() {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  return (
+    <div className="min-h-screen bg-background">
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <aside
+        className={`
+          fixed top-0 left-0 z-50 h-full w-64 bg-sidebar border-r border-sidebar-border
+          transform transition-transform duration-200 ease-in-out
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+          lg:translate-x-0
+        `}
+      >
+        <div className="flex items-center justify-between px-5 py-6 border-b border-sidebar-border">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-sidebar-primary flex items-center justify-center shadow-sm">
+              <BookOpen size={16} className="text-sidebar-primary-foreground" />
+            </div>
+            <div>
+              <h1 className="text-sm font-bold tracking-tight text-sidebar-foreground">{APP_TITLE}</h1>
+              <p className="text-xs text-sidebar-foreground/60">{APP_SUBTITLE}</p>
+            </div>
+          </div>
+          <button
+            className="lg:hidden p-1.5 rounded-lg text-sidebar-foreground/60 hover:text-sidebar-foreground transition-colors"
+            onClick={() => setSidebarOpen(false)}
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <nav className="px-3 pt-4 space-y-0.5">
+          <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-widest text-sidebar-foreground/40">
+            Navigation
+          </p>
+          {navigation.map(item => (
+            <NavLink
+              key={item.href}
+              to={item.href}
+              end={item.href === '/'}
+              onClick={() => setSidebarOpen(false)}
+              className={({ isActive }: { isActive: boolean }) =>
+                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  isActive
+                    ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm'
+                    : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                }`
+              }
+            >
+              <item.icon size={16} className="shrink-0" />
+              {item.name}
+            </NavLink>
+          ))}
+        </nav>
+      </aside>
+
+      <div className="lg:pl-64">
+        <header className="lg:hidden flex items-center gap-4 px-4 py-3 border-b bg-card sticky top-0 z-30">
+          <button
+            className="p-2 rounded-lg hover:bg-accent transition-colors"
+            onClick={() => setSidebarOpen(true)}
+          >
+            <Menu size={18} />
+          </button>
+          <span className="font-semibold text-sm">{APP_TITLE}</span>
+        </header>
+        <main className="p-6 lg:p-8 max-w-screen-2xl">
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  );
+}
+```

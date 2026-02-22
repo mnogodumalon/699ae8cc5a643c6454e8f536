@@ -1,51 +1,76 @@
-# Living Apps Dashboard Generator
+You build React Frontend with Living Apps Backend.
 
-You build React Dashboards for Living Apps Backend.
 ## Tech Stack
 - React 18 + TypeScript (Vite)
 - shadcn/ui + Tailwind CSS v4
 - recharts for charts
 - date-fns for date formatting
 - Living Apps REST API
-## ⚠️ Your Users Are NOT Developers
+
+## Your Users Are NOT Developers
 
 Your users don't understand code or UI design. Their requests will be simple and vague.
+**Your job:** Interpret what they actually need and create a beautiful, functional app that makes them say "Wow, das ist genau was ich brauche!"
 
-**Your job:** Interpret what they actually need and create a beautiful, functional dashboard that makes them say "Wow, das ist genau was ich brauche!"
+## Workflow: Analyze, Implement, Deploy
+
+### Step 1: Analyze (1-2 sentences)
+Read `.scaffold_context` and `app_metadata.json`. Decide in 1-2 sentences which UI paradigm fits best for the user's core workflow and WHY. Then go straight to implementation.
+
+### Step 2: Implement
+Follow `.claude/skills/frontend-impl/SKILL.md` to build DashboardOverview.tsx with the chosen UI paradigm. Edit index.css (design tokens, oklch). Edit Layout.tsx (title only).
+
+### Step 3: Deploy
+Call `mcp__deploy_tools__deploy_to_github`
+
+**WRITE ONCE RULE:** Write/edit each file ONCE. Do NOT write a file, read it back, then rewrite it.
+
+**NEVER USE BASH FOR FILE OPERATIONS.** No `cat`, `echo`, `heredoc`, `>`, `>>`, `tee`, or any other shell command to read or write source files. ALWAYS use Read/Write/Edit tools. If a tool call fails, fix the issue and retry with the SAME tool — do NOT fall back to Bash.
+
 
 ---
 
-## Workflow: ALWAYS Design First, Then Implement
+## Pre-Generated CRUD Scaffolds
 
-### Step 1: Understand the User's Need
-Read the user's request carefully. Think about what they actually want to achieve, not just what they literally said.
+The following files are **pre-generated** and provide a complete React Router app with full CRUD for all entities:
 
-### Step 2: Analyze the App
-Read `app_metadata.json` to understand:
-- What data exists?
-- What relationships between apps?
-- What metrics can be calculated?
-- What would be most valuable to show?
+- `src/App.tsx` — BrowserRouter with all routes configured
+- `src/components/Layout.tsx` — Sidebar navigation with links to all pages
+- `src/components/PageShell.tsx` — Consistent page header wrapper
+- `src/pages/DashboardOverview.tsx` — Empty shell (**you build this!**)
+- `src/pages/{Entity}Page.tsx` — Full CRUD pages per entity (table, search, create/edit/delete)
+- `src/components/dialogs/{Entity}Dialog.tsx` — Create/edit forms with correct field types
+- `src/components/ConfirmDialog.tsx` — Delete confirmation
+- `src/components/StatCard.tsx` — Reusable KPI card
 
-### Step 3: Design (Use frontend-design Skill)
-Create `design_brief.md` with detailed written design decisions:
-- What KPIs matter for this user and WHY
-- What visualizations make sense for this data
-- Mobile vs Desktop layout (described separately!)
-- Theme, colors, typography (with ready-to-copy CSS variables)
+### YOUR JOB
 
-See `.claude/skills/frontend-design/SKILL.md`
+The CRUD pages provide basic list-based CRUD as a fallback. **Your job is to build the dashboard as the app's primary workspace** — where users actually DO their work, not just view stats.
 
-### Step 4: Implement (Use frontend-impl Skill)
-Create `src/pages/Dashboard.tsx` following design_brief.md EXACTLY word for word.
+**The dashboard is NOT an info page.** It must provide the core workflow with the UI paradigm that fits the data best. Ask: "What is the most natural way for a user to interact with THIS data?" A generic list/table is almost never the answer. Build an interactive, domain-specific component with full create/edit/delete directly in it.
 
-See `.claude/skills/frontend-impl/SKILL.md`
+### Rules for Pre-Generated Files
 
-### Step 5: Build & Deploy
-```bash
-npm run build
-```
-Then call `mcp__deploy_tools__deploy_to_github`
+- **DashboardOverview.tsx** — You MUST call `Read("src/pages/DashboardOverview.tsx")` FIRST. Then call `Write` ONCE with the complete new content. Do NOT read it back after writing. Do NOT use Bash cat/echo — use ONLY Read and Write tools.
+- **index.css** — NEVER Write, only Edit. Pre-generated with correct import order.
+- **Layout.tsx** — NEVER Write, only Edit (title/subtitle only).
+- **CRUD pages and dialogs** — NEVER touch. Complete with all logic.
+- **App.tsx** — NEVER touch. Routes are pre-configured.
+- **PageShell.tsx, StatCard.tsx, ConfirmDialog.tsx** — NEVER touch.
+
+### What the scaffolds already handle (DON'T redo these)
+
+- All UI text auto-detected in correct language (German/English)
+- PageShell wrapper with consistent headers on all pages
+- Layout with sidebar using semantic tokens (bg-sidebar, text-sidebar-foreground, etc.)
+- Date formatting with date-fns (German dd.MM.yyyy / English MMM d, yyyy)
+- Applookup fields resolved to display names
+- Boolean fields with styled badges
+- Search, create, edit, delete with confirm dialog
+- React Router with BrowserRouter and correct basename for GitHub Pages
+- Responsive mobile sidebar with overlay
+
+**Generated components use semantic tokens** — just changing CSS variables in `index.css` will update the entire sidebar, navigation, and all pages automatically.
 
 ---
 
@@ -53,8 +78,15 @@ Then call `mcp__deploy_tools__deploy_to_github`
 
 | Path | Content |
 |------|---------|
-| `src/types/*.ts` | TypeScript Types |
-| `src/services/livingAppsService.ts` | API Service |
+| `src/types/app.ts` | TypeScript interfaces, APP_IDS |
+| `src/services/livingAppsService.ts` | API Service with typed CRUD methods |
+| `src/App.tsx` | React Router with all routes |
+| `src/components/Layout.tsx` | Sidebar navigation |
+| `src/components/PageShell.tsx` | Page header wrapper |
+| `src/pages/*Page.tsx` | CRUD pages per entity |
+| `src/components/dialogs/*Dialog.tsx` | Create/edit dialogs |
+| `src/components/ConfirmDialog.tsx` | Delete confirmation |
+| `src/components/StatCard.tsx` | KPI card |
 | `src/components/ui/*` | shadcn components |
 | `app_metadata.json` | App metadata |
 
@@ -62,29 +94,83 @@ Then call `mcp__deploy_tools__deploy_to_github`
 
 ## Critical API Rules (MUST follow!)
 
-### Dates
-- `date/datetimeminute` → `YYYY-MM-DDTHH:MM` (NO seconds!)
-- `date/date` → `YYYY-MM-DD`
+### Date Formats (STRICT!)
+
+| Field Type | Format | Example |
+|------------|--------|---------|
+| `date/date` | `YYYY-MM-DD` | `2025-11-06` |
+| `date/datetimeminute` | `YYYY-MM-DDTHH:MM` | `2025-11-06T12:00` |
+
+**NO seconds** for `datetimeminute`! `2025-11-06T12:00:00` will FAIL.
 
 ### applookup Fields
-- **ALWAYS** use `extractRecordId()` (never split manually!)
-- Can be `null` → always check!
-- Full URLs: `https://my.living-apps.de/rest/apps/{id}/records/{record_id}`
 
-### API Response
-- Returns **object**, NOT array
-- Use `Object.entries()` to extract `record_id`
+`applookup/select` fields store full URLs: `https://my.living-apps.de/rest/apps/{app_id}/records/{record_id}`
 
-### TypeScript
-- **ALWAYS** `import type` for type-only imports
+```typescript
+const recordId = extractRecordId(record.fields.category);
+if (!recordId) return; // Always null-check!
+
+const data = {
+  category: createRecordUrl(APP_IDS.CATEGORIES, selectedId),
+};
+```
+
+### API Response Format
+
+Returns **object**, NOT array. Use `Object.entries()` to extract `record_id`.
+
+### TypeScript Import Rules
+
+```typescript
+// ❌ WRONG
+import { Habit } from '@/types/app';
+
+// ✅ CORRECT
+import type { Habit } from '@/types/app';
+```
 
 ### shadcn Select
-- **NEVER** use `value=""` on `<SelectItem>` (causes Runtime Error)
+
+```typescript
+// ❌ WRONG - Runtime error!
+<SelectItem value="">None</SelectItem>
+
+// ✅ CORRECT
+<SelectItem value="none">None</SelectItem>
+```
+
+### Building with the API
+
+```typescript
+import { LivingAppsService, extractRecordId, createRecordUrl } from '@/services/livingAppsService';
+import { APP_IDS } from '@/types/app';
+import type { Habit } from '@/types/app';
+
+const [habits, setHabits] = useState<Habit[]>([]);
+const [loading, setLoading] = useState(true);
+
+useEffect(() => {
+  LivingAppsService.getHabits()
+    .then(setHabits)
+    .finally(() => setLoading(false));
+}, []);
+
+const handleAdd = async (data) => {
+  const created = await LivingAppsService.createHabit(data);
+  setHabits(prev => [...prev, created]);
+};
+
+const handleUpdate = async (id, data) => {
+  await LivingAppsService.updateHabit(id, data);
+  setHabits(await LivingAppsService.getHabits());
+};
+
+const handleDelete = async (id) => {
+  await LivingAppsService.deleteHabit(id);
+  setHabits(prev => prev.filter(h => h.record_id !== id));
+};
+```
 
 ## Deployment
 After completion: Call `mcp__deploy_tools__deploy_to_github` (no manual git commands!)
-
----
-
-> For design guidelines: see `.claude/skills/frontend-design/`
-> For implementation details: see `.claude/skills/frontend-impl/`

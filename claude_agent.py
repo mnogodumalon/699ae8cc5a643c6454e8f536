@@ -32,6 +32,8 @@ async def main():
     "Initializes Git, commits EVERYTHING, and pushes it to the configured repository. Use this ONLY at the very end.",
     {})
     async def deploy_to_github(args):
+        import time
+        t_deploy_start = time.time()
         try:
             run_git_cmd("git config --global user.email 'lilo@livinglogic.de'")
             run_git_cmd("git config --global user.name 'Lilo'")
@@ -77,13 +79,15 @@ async def main():
             run_git_cmd("git commit -m 'Lilo Auto-Deploy' --allow-empty")
             run_git_cmd("git push origin main")
             
-            print("[DEPLOY] ✅ Push erfolgreich!")
+            t_push_done = time.time()
+            print(f"[DEPLOY] ✅ Push erfolgreich! ({t_push_done - t_deploy_start:.1f}s)")
             
             # Dashboard-Link-Aktivierung wird vom Service übernommen (hat VPN-Zugriff)
             print("[DEPLOY] ℹ️ Dashboard-Links werden vom Service aktiviert")
 
+            t_deploy_total = time.time() - t_deploy_start
             return {
-                "content": [{"type": "text", "text": "✅ Deployment erfolgreich! Code wurde gepusht."}]
+                "content": [{"type": "text", "text": f"✅ Deployment erfolgreich! ({t_deploy_total:.1f}s)"}]
             }
 
         except Exception as e:
@@ -100,16 +104,31 @@ async def main():
     options = ClaudeAgentOptions(
         system_prompt={
             "type": "preset",
-            "preset": "claude_code"
+            "preset": "claude_code",
+            "append": (
+                "MANDATORY RULES (highest priority):\n"
+                "- No design_brief.md — analyze data in 1-2 sentences, then implement directly\n"
+                "- DashboardOverview.tsx: Call Read('src/pages/DashboardOverview.tsx') FIRST, then Write ONCE with complete content. Never read back after writing.\n"
+                "- NEVER use Bash for file operations (no cat, echo, heredoc, >, >>). ALWAYS use Read/Write/Edit tools. If a tool fails, retry with the SAME tool — never fall back to Bash.\n"
+                "- index.css: NEVER Write, only Edit (pre-generated with correct import order)\n"
+                "- Layout.tsx: NEVER Write, only Edit (only change APP_TITLE/APP_SUBTITLE)\n"
+                "- CRUD pages/dialogs: NEVER touch — complete with all logic\n"
+                "- App.tsx, PageShell.tsx, StatCard.tsx, ConfirmDialog.tsx: NEVER touch\n"
+                "- No Read-back after Write/Edit\n"
+                "- No Read of files whose contents are in .scaffold_context\n"
+                "- Read .scaffold_context FIRST to understand all generated files\n"
+                "- Dashboard is the PRIMARY WORKSPACE — build interactive domain-specific UI, not an info page\n"
+                "- NEVER use TodoWrite — no task lists, no planning, just implement directly"
+            ),
         },
         setting_sources=["project"],  # Required: loads CLAUDE.md and .claude/skills/
         mcp_servers={"deploy_tools": deployment_server},
         permission_mode="acceptEdits",
-        allowed_tools=["Bash", "Write", "Read", "Edit", "Glob", "Grep", "Task", "TodoWrite",
-        "Skill", "mcp__deploy_tools__deploy_to_github"
+        allowed_tools=["Bash", "Write", "Read", "Edit", "Glob", "Grep", "Task",
+        "mcp__deploy_tools__deploy_to_github"
         ],
         cwd="/home/user/app",
-        model="claude-opus-4-5-20251101", #"claude-sonnet-4-5-20250929"
+        model="claude-sonnet-4-6"#"claude-opus-4-5-20251101", #"claude-sonnet-4-5-20250929"
     )
 
     # Session-Resume Unterstützung
@@ -163,13 +182,16 @@ Starte JETZT mit Schritt 1!"""
     else:
         # Normal-Mode: Neues Dashboard bauen
         query = (
-            "Use frontend-design Skill to create analyse app structure and generate design_brief.md"
-            "Build the Dashboard.tsx following design_brief.md exactly. "
+            "Read .scaffold_context and app_metadata.json. "
+            "Analyze data, decide UI paradigm in 1-2 sentences, then implement directly. "
+            "Follow .claude/skills/frontend-impl/SKILL.md. "
             "Use existing types and services from src/types/ and src/services/. "
             "Deploy when done using the deploy_to_github tool."
         )
         print(f"[LILO] Build-Mode: Neues Dashboard erstellen")
 
+    import time
+    t_agent_total_start = time.time()
     print(f"[LILO] Initialisiere Client")
 
     # 4. Der Client Lifecycle
@@ -180,17 +202,22 @@ Starte JETZT mit Schritt 1!"""
 
         # 5. Antwort-Schleife
         # receive_response() liefert alles bis zum Ende des Auftrags
+        t_last_step = t_agent_total_start
+        
         async for message in client.receive_response():
+            now = time.time()
+            elapsed = round(now - t_agent_total_start, 1)
+            dt = round(now - t_last_step, 1)
+            t_last_step = now
             
             # A. Wenn er denkt oder spricht
             if isinstance(message, AssistantMessage):
                 for block in message.content:
                     if isinstance(block, TextBlock):
-                        #als JSON-Zeile ausgeben
-                        print(json.dumps({"type": "think", "content": block.text}), flush=True)
+                        print(json.dumps({"type": "think", "content": block.text, "t": elapsed, "dt": dt}), flush=True)
                     
                     elif isinstance(block, ToolUseBlock):
-                        print(json.dumps({"type": "tool", "tool": block.name, "input": str(block.input)}), flush=True)
+                        print(json.dumps({"type": "tool", "tool": block.name, "input": str(block.input), "t": elapsed, "dt": dt}), flush=True)
 
             # B. Wenn er fertig ist (oder Fehler)
             elif isinstance(message, ResultMessage):
@@ -206,11 +233,13 @@ Starte JETZT mit Schritt 1!"""
                     except Exception as e:
                         print(f"[LILO] ⚠️ Fehler beim Speichern der Session ID: {e}")
                 
+                t_agent_total = time.time() - t_agent_total_start
                 print(json.dumps({
                     "type": "result", 
                     "status": status, 
                     "cost": message.total_cost_usd,
-                    "session_id": message.session_id
+                    "session_id": message.session_id,
+                    "duration_s": round(t_agent_total, 1)
                 }), flush=True)
 
 if __name__ == "__main__":

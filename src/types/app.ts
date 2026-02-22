@@ -1,29 +1,5 @@
 // AUTOMATICALLY GENERATED TYPES - DO NOT EDIT
 
-export interface Dozenten {
-  record_id: string;
-  createdat: string;
-  updatedat: string | null;
-  fields: {
-    vorname?: string;
-    nachname?: string;
-    email?: string;
-    telefon?: string;
-    fachgebiet?: string;
-  };
-}
-
-export interface Raeume {
-  record_id: string;
-  createdat: string;
-  updatedat: string | null;
-  fields: {
-    raumname?: string;
-    gebaeude?: string;
-    kapazitaet?: number;
-  };
-}
-
 export interface Kurse {
   record_id: string;
   createdat: string;
@@ -53,18 +29,6 @@ export interface Teilnehmer {
   };
 }
 
-export interface Anmeldungen {
-  record_id: string;
-  createdat: string;
-  updatedat: string | null;
-  fields: {
-    teilnehmer?: string; // applookup -> URL zu 'Teilnehmer' Record
-    kurs?: string; // applookup -> URL zu 'Kurse' Record
-    anmeldedatum?: string; // Format: YYYY-MM-DD oder ISO String
-    bezahlt?: boolean;
-  };
-}
-
 export interface Kursanmeldung {
   record_id: string;
   createdat: string;
@@ -81,19 +45,55 @@ export interface Kursanmeldung {
   };
 }
 
+export interface Dozenten {
+  record_id: string;
+  createdat: string;
+  updatedat: string | null;
+  fields: {
+    vorname?: string;
+    nachname?: string;
+    email?: string;
+    telefon?: string;
+    fachgebiet?: string;
+  };
+}
+
+export interface Raeume {
+  record_id: string;
+  createdat: string;
+  updatedat: string | null;
+  fields: {
+    raumname?: string;
+    gebaeude?: string;
+    kapazitaet?: number;
+  };
+}
+
+export interface Anmeldungen {
+  record_id: string;
+  createdat: string;
+  updatedat: string | null;
+  fields: {
+    teilnehmer?: string; // applookup -> URL zu 'Teilnehmer' Record
+    kurs?: string; // applookup -> URL zu 'Kurse' Record
+    anmeldedatum?: string; // Format: YYYY-MM-DD oder ISO String
+    bezahlt?: boolean;
+  };
+}
+
 export const APP_IDS = {
-  DOZENTEN: '699ae8aa3c91c2ef115da050',
-  RAEUME: '699ae8b09300bacb8903a84c',
   KURSE: '699ae8b18700a39d668ef868',
   TEILNEHMER: '699ae8b1c9d1cbfb6fca882e',
-  ANMELDUNGEN: '699ae8b2ae2a43295a0c2d3a',
   KURSANMELDUNG: '699ae8b2260a2e5209ebfa1f',
+  DOZENTEN: '699ae8aa3c91c2ef115da050',
+  RAEUME: '699ae8b09300bacb8903a84c',
+  ANMELDUNGEN: '699ae8b2ae2a43295a0c2d3a',
 } as const;
 
 // Helper Types for creating new records
-export type CreateDozenten = Dozenten['fields'];
-export type CreateRaeume = Raeume['fields'];
 export type CreateKurse = Kurse['fields'];
 export type CreateTeilnehmer = Teilnehmer['fields'];
-export type CreateAnmeldungen = Anmeldungen['fields'];
 export type CreateKursanmeldung = Kursanmeldung['fields'];
+export type CreateDozenten = Dozenten['fields'];
+export type CreateRaeume = Raeume['fields'];
+export type CreateAnmeldungen = Anmeldungen['fields'];
