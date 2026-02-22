@@ -18,7 +18,7 @@ Your users don't understand code or UI design. Their requests will be simple and
 Read `.scaffold_context` and `app_metadata.json`. Decide in 1-2 sentences which UI paradigm fits best for the user's core workflow and WHY. Then go straight to implementation.
 
 ### Step 2: Implement
-Follow `.claude/skills/frontend-impl/SKILL.md` to build DashboardOverview.tsx with the chosen UI paradigm. Edit index.css (design tokens, oklch). Edit Layout.tsx (title only).
+Follow `.claude/skills/frontend-impl/SKILL.md` to build DashboardOverview.tsx with the chosen UI paradigm. Edit Layout.tsx (title only). index.css is pre-generated — do NOT touch it.
 
 ### Step 3: Deploy
 Call `mcp__deploy_tools__deploy_to_github`
@@ -56,7 +56,7 @@ The CRUD pages provide basic list-based CRUD as a fallback. **Your job is to bui
 ### Rules for Pre-Generated Files
 
 - **DashboardOverview.tsx** — You MUST call `Read("src/pages/DashboardOverview.tsx")` FIRST. Then call `Write` ONCE with the complete new content. Do NOT read it back after writing. Do NOT use Bash cat/echo — use ONLY Read and Write tools. The skeleton already has `useDashboardData()`, enrichment, loading/error — keep that pattern, replace the empty content div.
-- **index.css** — NEVER Write, only Edit. Pre-generated with correct import order.
+- **index.css** — NEVER touch. Pre-generated design system (font, colors, sidebar theme). Use existing tokens.
 - **Layout.tsx** — NEVER Write, only Edit (title/subtitle only).
 - **useDashboardData.ts, enriched.ts, enrich.ts, formatters.ts** — NEVER touch. Use as-is.
 - **CRUD pages and dialogs** — NEVER touch. Complete with all logic.
@@ -78,7 +78,7 @@ The CRUD pages provide basic list-based CRUD as a fallback. **Your job is to bui
 - React Router with BrowserRouter and correct basename for GitHub Pages
 - Responsive mobile sidebar with overlay
 
-**Generated components use semantic tokens** — just changing CSS variables in `index.css` will update the entire sidebar, navigation, and all pages automatically.
+**Generated components use semantic tokens** — the pre-generated `index.css` design system (Plus Jakarta Sans, indigo palette, dark sidebar) applies to all components automatically. Do NOT edit it.
 
 ---
 
@@ -86,6 +86,7 @@ The CRUD pages provide basic list-based CRUD as a fallback. **Your job is to bui
 
 | Path | Content |
 |------|---------|
+| `src/index.css` | Design system (font, colors, tokens) — DO NOT edit |
 | `src/types/app.ts` | TypeScript interfaces, APP_IDS |
 | `src/types/enriched.ts` | Enriched types with resolved display names |
 | `src/services/livingAppsService.ts` | API Service with typed CRUD methods |

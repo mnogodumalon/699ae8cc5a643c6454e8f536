@@ -110,7 +110,7 @@ async def main():
                 "- No design_brief.md — analyze data in 1-2 sentences, then implement directly\n"
                 "- DashboardOverview.tsx: Call Read('src/pages/DashboardOverview.tsx') FIRST, then Write ONCE with complete content. Never read back after writing.\n"
                 "- NEVER use Bash for file operations (no cat, echo, heredoc, >, >>). ALWAYS use Read/Write/Edit tools. If a tool fails, retry with the SAME tool — never fall back to Bash.\n"
-                "- index.css: NEVER Write, only Edit (pre-generated with correct import order)\n"
+                "- index.css: NEVER touch — pre-generated design system (font, colors, sidebar). Use existing tokens.\n"
                 "- Layout.tsx: NEVER Write, only Edit (only change APP_TITLE/APP_SUBTITLE)\n"
                 "- CRUD pages/dialogs: NEVER touch — complete with all logic\n"
                 "- App.tsx, PageShell.tsx, StatCard.tsx, ConfirmDialog.tsx: NEVER touch\n"

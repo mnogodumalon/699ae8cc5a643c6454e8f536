@@ -1,53 +1,54 @@
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { enrichKurse, enrichAnmeldungen } from '@/lib/enrich';
-import { LivingAppsService, extractRecordId, createRecordUrl } from '@/services/livingAppsService';
 import { formatDate, formatCurrency } from '@/lib/formatters';
+import { LivingAppsService, extractRecordId, createRecordUrl } from '@/services/livingAppsService';
 import { APP_IDS } from '@/types/app';
-import type { Kurse, Anmeldungen } from '@/types/app';
+import type { Kurse } from '@/types/app';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  AlertCircle,
-  BookOpen,
-  Users,
-  Plus,
-  Calendar,
-  MapPin,
-  GraduationCap,
-  Trash2,
-  Euro,
-  ChevronRight,
-  Search,
-  X,
-  CheckCircle2,
-  Clock,
-  BarChart3,
+  AlertCircle, BookOpen, Users, Euro, Calendar, MapPin, GraduationCap,
+  Plus, Pencil, Trash2, ChevronRight, CheckCircle2, XCircle, UserPlus, X
 } from 'lucide-react';
-import { useState, useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { useMemo, useState } from 'react';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface KursFormData {
+  titel: string;
+  beschreibung: string;
+  startdatum: string;
+  enddatum: string;
+  max_teilnehmer: string;
+  preis: string;
+  dozentId: string;
+  raumId: string;
+}
+
+interface AnmeldungFormData {
+  teilnehmerId: string;
+  anmeldedatum: string;
+  bezahlt: boolean;
+}
+
+const emptyKursForm = (): KursFormData => ({
+  titel: '', beschreibung: '', startdatum: '', enddatum: '',
+  max_teilnehmer: '', preis: '', dozentId: 'none', raumId: 'none',
+});
+
+// ── Main Component ─────────────────────────────────────────────────────────────
 
 export default function DashboardOverview() {
   const {
-    kurse, anmeldungen, kursanmeldung,
+    kurse, teilnehmer, anmeldungen,
     kurseMap, teilnehmerMap, dozentenMap, raeumeMap,
+    dozenten, raeume,
     loading, error, fetchAll,
   } = useDashboardData();
 
@@ -55,97 +56,146 @@ export default function DashboardOverview() {
   const enrichedAnmeldungen = enrichAnmeldungen(anmeldungen, { teilnehmerMap, kurseMap });
 
   const [selectedKursId, setSelectedKursId] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [showKursDialog, setShowKursDialog] = useState(false);
-  const [editingKurs, setEditingKurs] = useState<Kurse | null>(null);
-  const [showAnmeldungDialog, setShowAnmeldungDialog] = useState(false);
-  const [editingAnmeldung, setEditingAnmeldung] = useState<Anmeldungen | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [confirmDeleteType, setConfirmDeleteType] = useState<'kurs' | 'anmeldung'>('kurs');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [kursDialog, setKursDialog] = useState<{ open: boolean; mode: 'create' | 'edit'; data: KursFormData; editId?: string }>({
+    open: false, mode: 'create', data: emptyKursForm(),
+  });
+  const [anmeldungDialog, setAnmeldungDialog] = useState<{ open: boolean; kursId: string }>({ open: false, kursId: '' });
+  const [deleteKursId, setDeleteKursId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  const filteredKurse = useMemo(() => {
-    if (!searchQuery) return enrichedKurse;
-    const q = searchQuery.toLowerCase();
-    return enrichedKurse.filter(k =>
-      (k.fields.titel ?? '').toLowerCase().includes(q) ||
-      (k.dozentName ?? '').toLowerCase().includes(q) ||
-      (k.raumName ?? '').toLowerCase().includes(q)
-    );
-  }, [enrichedKurse, searchQuery]);
+  const selectedKurs = useMemo(
+    () => enrichedKurse.find(k => k.record_id === selectedKursId) ?? null,
+    [enrichedKurse, selectedKursId]
+  );
 
-  const selectedKurs = enrichedKurse.find(k => k.record_id === selectedKursId) ?? null;
-
-  const kursAnmeldungenIds = useMemo(() => {
-    if (!selectedKursId) return new Set<string>();
-    return new Set(
-      anmeldungen
-        .filter(a => {
-          const id = extractRecordId(a.fields.kurs);
-          return id === selectedKursId;
-        })
-        .map(a => a.record_id)
-    );
-  }, [anmeldungen, selectedKursId]);
-
-  const selectedKursAnmeldungen = useMemo(() => {
-    return enrichedAnmeldungen.filter(a => kursAnmeldungenIds.has(a.record_id));
-  }, [enrichedAnmeldungen, kursAnmeldungenIds]);
-
-  // KPI Stats
-  const totalKurse = kurse.length;
-  const totalAnmeldungen = anmeldungen.length;
-  const bezahltAnmeldungen = anmeldungen.filter(a => a.fields.bezahlt === true).length;
-  const unbezahltAnmeldungen = totalAnmeldungen - bezahltAnmeldungen;
-
-  const revenue = useMemo(() => {
-    let total = 0;
-    anmeldungen.forEach(a => {
-      if (!a.fields.bezahlt) return;
+  const kursAnmeldungen = useMemo(
+    () => enrichedAnmeldungen.filter(a => {
       const kursId = extractRecordId(a.fields.kurs);
-      if (!kursId) return;
-      const kurs = kurseMap.get(kursId);
-      if (kurs?.fields.preis) total += kurs.fields.preis;
+      return kursId === selectedKursId;
+    }),
+    [enrichedAnmeldungen, selectedKursId]
+  );
+
+  // KPI stats
+  const totalKurse = kurse.length;
+  const totalTeilnehmer = teilnehmer.length;
+  const totalAnmeldungen = anmeldungen.length;
+  const totalUmsatz = useMemo(() => {
+    let sum = 0;
+    anmeldungen.forEach(a => {
+      if (a.fields.bezahlt) {
+        const kursId = extractRecordId(a.fields.kurs);
+        if (kursId) {
+          const k = kurseMap.get(kursId);
+          if (k?.fields.preis) sum += k.fields.preis;
+        }
+      }
     });
-    return total;
+    return sum;
   }, [anmeldungen, kurseMap]);
-
-  // Chart data: registrations per course (top 6)
-  const chartData = useMemo(() => {
-    return enrichedKurse
-      .map(k => {
-        const count = anmeldungen.filter(a => extractRecordId(a.fields.kurs) === k.record_id).length;
-        return { name: (k.fields.titel ?? 'Kurs').slice(0, 16), count };
-      })
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 6);
-  }, [enrichedKurse, anmeldungen]);
-
-  const getAnmeldungCountForKurs = (kursId: string) =>
-    anmeldungen.filter(a => extractRecordId(a.fields.kurs) === kursId).length;
-
-  const getBelegungPercent = (kurs: Kurse) => {
-    const max = kurs.fields.max_teilnehmer;
-    if (!max || max === 0) return 0;
-    const count = getAnmeldungCountForKurs(kurs.record_id);
-    return Math.min(100, Math.round((count / max) * 100));
-  };
 
   if (loading) return <DashboardSkeleton />;
   if (error) return <DashboardError error={error} onRetry={fetchAll} />;
 
+  // ── Handlers ───────────────────────────────────────────────────────────────
+
+  const openCreateKurs = () => {
+    setKursDialog({ open: true, mode: 'create', data: emptyKursForm() });
+  };
+
+  const openEditKurs = (k: Kurse) => {
+    setKursDialog({
+      open: true,
+      mode: 'edit',
+      editId: k.record_id,
+      data: {
+        titel: k.fields.titel ?? '',
+        beschreibung: k.fields.beschreibung ?? '',
+        startdatum: k.fields.startdatum ?? '',
+        enddatum: k.fields.enddatum ?? '',
+        max_teilnehmer: k.fields.max_teilnehmer != null ? String(k.fields.max_teilnehmer) : '',
+        preis: k.fields.preis != null ? String(k.fields.preis) : '',
+        dozentId: extractRecordId(k.fields.dozent) ?? 'none',
+        raumId: extractRecordId(k.fields.raum) ?? 'none',
+      },
+    });
+  };
+
+  const handleSaveKurs = async () => {
+    setSaving(true);
+    try {
+      const { data, mode, editId } = kursDialog;
+      const fields: Kurse['fields'] = {
+        titel: data.titel || undefined,
+        beschreibung: data.beschreibung || undefined,
+        startdatum: data.startdatum || undefined,
+        enddatum: data.enddatum || undefined,
+        max_teilnehmer: data.max_teilnehmer ? Number(data.max_teilnehmer) : undefined,
+        preis: data.preis ? Number(data.preis) : undefined,
+        dozent: data.dozentId && data.dozentId !== 'none' ? createRecordUrl(APP_IDS.DOZENTEN, data.dozentId) : undefined,
+        raum: data.raumId && data.raumId !== 'none' ? createRecordUrl(APP_IDS.RAEUME, data.raumId) : undefined,
+      };
+      if (mode === 'create') {
+        await LivingAppsService.createKurseEntry(fields);
+      } else if (editId) {
+        await LivingAppsService.updateKurseEntry(editId, fields);
+      }
+      setKursDialog(d => ({ ...d, open: false }));
+      fetchAll();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteKurs = async (id: string) => {
+    setSaving(true);
+    try {
+      await LivingAppsService.deleteKurseEntry(id);
+      if (selectedKursId === id) setSelectedKursId(null);
+      setDeleteKursId(null);
+      fetchAll();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteAnmeldung = async (id: string) => {
+    await LivingAppsService.deleteAnmeldungenEntry(id);
+    fetchAll();
+  };
+
+  const handleToggleBezahlt = async (id: string, current: boolean) => {
+    await LivingAppsService.updateAnmeldungenEntry(id, { bezahlt: !current });
+    fetchAll();
+  };
+
+  const handleSaveAnmeldung = async (form: AnmeldungFormData) => {
+    setSaving(true);
+    try {
+      await LivingAppsService.createAnmeldungenEntry({
+        teilnehmer: form.teilnehmerId !== 'none' ? createRecordUrl(APP_IDS.TEILNEHMER, form.teilnehmerId) : undefined,
+        kurs: createRecordUrl(APP_IDS.KURSE, anmeldungDialog.kursId),
+        anmeldedatum: form.anmeldedatum || undefined,
+        bezahlt: form.bezahlt,
+      });
+      setAnmeldungDialog(d => ({ ...d, open: false }));
+      fetchAll();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-800 tracking-tight text-foreground">Kursübersicht</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Verwalten Sie Kurse und Anmeldungen</p>
+          <h1 className="text-2xl font-bold tracking-tight">Kursübersicht</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Verwalte Kurse, Räume und Anmeldungen</p>
         </div>
-        <Button
-          onClick={() => { setEditingKurs(null); setShowKursDialog(true); }}
-          className="gap-2 bg-primary text-primary-foreground shadow-sm hover:opacity-90"
-        >
+        <Button onClick={openCreateKurs} className="gap-2">
           <Plus size={15} />
           Neuer Kurs
         </Button>
@@ -153,258 +203,197 @@ export default function DashboardOverview() {
 
       {/* KPI Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KpiCard
-          label="Kurse gesamt"
-          value={totalKurse}
-          icon={<BookOpen size={16} />}
-          accent="blue"
-        />
-        <KpiCard
-          label="Anmeldungen"
-          value={totalAnmeldungen}
-          icon={<Users size={16} />}
-          accent="purple"
-        />
-        <KpiCard
-          label="Bezahlt"
-          value={bezahltAnmeldungen}
-          icon={<CheckCircle2 size={16} />}
-          accent="green"
-        />
-        <KpiCard
-          label="Offene Zahlung"
-          value={unbezahltAnmeldungen}
-          icon={<Clock size={16} />}
-          accent="orange"
-        />
+        <KpiCard icon={<BookOpen size={16} />} label="Kurse" value={totalKurse} color="indigo" />
+        <KpiCard icon={<Users size={16} />} label="Teilnehmer" value={totalTeilnehmer} color="violet" />
+        <KpiCard icon={<GraduationCap size={16} />} label="Anmeldungen" value={totalAnmeldungen} color="sky" />
+        <KpiCard icon={<Euro size={16} />} label="Umsatz (bezahlt)" value={formatCurrency(totalUmsatz)} color="emerald" />
       </div>
 
-      {/* Main: Kurs List + Detail */}
+      {/* Main workspace: course list + detail */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        {/* Left: Kurs List */}
-        <div className="lg:col-span-2 flex flex-col gap-3">
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Kurse durchsuchen…"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="pl-9 text-sm bg-card"
-            />
-            {searchQuery && (
-              <button
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                onClick={() => setSearchQuery('')}
-              >
-                <X size={13} />
-              </button>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-2 max-h-[520px] overflow-y-auto pr-1">
-            {filteredKurse.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <BookOpen size={28} className="text-muted-foreground/40 mb-2" />
-                <p className="text-sm text-muted-foreground">Keine Kurse gefunden</p>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="mt-2 text-primary"
-                  onClick={() => { setEditingKurs(null); setShowKursDialog(true); }}
-                >
-                  <Plus size={13} className="mr-1" /> Kurs anlegen
-                </Button>
+        {/* Left: course cards */}
+        <div className="lg:col-span-2 space-y-2">
+          {enrichedKurse.length === 0 && (
+            <div className="rounded-2xl border border-dashed border-border bg-card flex flex-col items-center justify-center py-16 text-center gap-3">
+              <BookOpen size={32} className="text-muted-foreground/40" />
+              <div>
+                <p className="font-medium text-foreground">Keine Kurse vorhanden</p>
+                <p className="text-sm text-muted-foreground">Erstelle deinen ersten Kurs</p>
               </div>
-            ) : (
-              filteredKurse.map(kurs => {
-                const count = getAnmeldungCountForKurs(kurs.record_id);
-                const pct = getBelegungPercent(kurs);
-                const isSelected = kurs.record_id === selectedKursId;
-                return (
-                  <button
-                    key={kurs.record_id}
-                    onClick={() => setSelectedKursId(isSelected ? null : kurs.record_id)}
-                    className={`w-full text-left rounded-xl border p-4 transition-all duration-150 group ${
-                      isSelected
-                        ? 'border-primary bg-primary/5 shadow-sm'
-                        : 'border-border bg-card hover:border-primary/40 hover:shadow-sm'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-600 text-sm text-foreground truncate">{kurs.fields.titel ?? '—'}</p>
-                        {kurs.dozentName && (
-                          <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                            <GraduationCap size={11} />
-                            {kurs.dozentName}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-xs font-500 text-muted-foreground">
-                          {count}{kurs.fields.max_teilnehmer ? `/${kurs.fields.max_teilnehmer}` : ''}
-                        </span>
-                        <ChevronRight
-                          size={14}
-                          className={`text-muted-foreground transition-transform ${isSelected ? 'rotate-90 text-primary' : 'group-hover:translate-x-0.5'}`}
-                        />
-                      </div>
+              <Button size="sm" onClick={openCreateKurs} className="gap-1.5 mt-1">
+                <Plus size={13} /> Kurs erstellen
+              </Button>
+            </div>
+          )}
+          {enrichedKurse.map(k => {
+            const enrolled = enrichedAnmeldungen.filter(a => extractRecordId(a.fields.kurs) === k.record_id).length;
+            const max = k.fields.max_teilnehmer ?? 0;
+            const pct = max > 0 ? Math.min(100, Math.round((enrolled / max) * 100)) : 0;
+            const isFull = max > 0 && enrolled >= max;
+            const isSelected = selectedKursId === k.record_id;
+
+            return (
+              <button
+                key={k.record_id}
+                onClick={() => setSelectedKursId(isSelected ? null : k.record_id)}
+                className={`w-full text-left rounded-2xl border bg-card p-4 transition-all hover:shadow-md group ${
+                  isSelected ? 'border-primary shadow-md ring-1 ring-primary/20' : 'border-border hover:border-primary/40'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-sm truncate">{k.fields.titel || '(Kein Titel)'}</p>
+                      {isFull && <Badge variant="destructive" className="shrink-0 text-xs">Ausgebucht</Badge>}
                     </div>
-                    {kurs.fields.max_teilnehmer ? (
-                      <div className="mt-2.5 h-1.5 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all ${
-                            pct >= 90 ? 'bg-destructive' : pct >= 70 ? 'bg-yellow-500' : 'bg-primary'
-                          }`}
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                    ) : null}
-                    <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                      {kurs.fields.startdatum && (
-                        <span className="flex items-center gap-1">
-                          <Calendar size={11} />
-                          {formatDate(kurs.fields.startdatum)}
+                    <div className="flex flex-wrap gap-x-3 mt-1">
+                      {k.dozentName && (
+                        <span className="text-xs text-muted-foreground flex items-center gap-1">
+                          <GraduationCap size={10} /> {k.dozentName}
                         </span>
                       )}
-                      {kurs.raumName && (
-                        <span className="flex items-center gap-1">
-                          <MapPin size={11} />
-                          {kurs.raumName}
-                        </span>
-                      )}
-                      {kurs.fields.preis != null && (
-                        <span className="flex items-center gap-1">
-                          <Euro size={11} />
-                          {formatCurrency(kurs.fields.preis)}
+                      {k.raumName && (
+                        <span className="text-xs text-muted-foreground flex items-center gap-1">
+                          <MapPin size={10} /> {k.raumName}
                         </span>
                       )}
                     </div>
-                  </button>
-                );
-              })
-            )}
-          </div>
+                    {(k.fields.startdatum || k.fields.enddatum) && (
+                      <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                        <Calendar size={10} />
+                        {formatDate(k.fields.startdatum)}
+                        {k.fields.enddatum ? ` – ${formatDate(k.fields.enddatum)}` : ''}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-xs font-medium text-muted-foreground">
+                      {enrolled}{max > 0 ? `/${max}` : ''}
+                    </span>
+                    <ChevronRight size={14} className={`text-muted-foreground transition-transform ${isSelected ? 'rotate-90' : ''}`} />
+                  </div>
+                </div>
+                {max > 0 && (
+                  <div className="mt-3">
+                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          pct >= 90 ? 'bg-destructive' : pct >= 60 ? 'bg-amber-500' : 'bg-primary'
+                        }`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </button>
+            );
+          })}
         </div>
 
-        {/* Right: Detail Panel */}
+        {/* Right: detail panel */}
         <div className="lg:col-span-3">
-          {selectedKurs ? (
-            <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
-              {/* Kurs Header */}
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-700 text-foreground">{selectedKurs.fields.titel ?? '—'}</h2>
-                  {selectedKurs.fields.beschreibung && (
-                    <p className="text-sm text-muted-foreground mt-1 leading-relaxed line-clamp-2">
-                      {selectedKurs.fields.beschreibung}
-                    </p>
-                  )}
+          {!selectedKurs ? (
+            <div className="rounded-2xl border border-dashed border-border bg-card/50 h-full min-h-64 flex items-center justify-center">
+              <div className="text-center text-muted-foreground">
+                <BookOpen size={32} className="mx-auto mb-2 opacity-30" />
+                <p className="text-sm">Kurs auswählen um Details zu sehen</p>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-border bg-card overflow-hidden">
+              {/* Course header */}
+              <div className="bg-primary/5 border-b border-border p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <h2 className="font-bold text-lg leading-tight">{selectedKurs.fields.titel || '(Kein Titel)'}</h2>
+                    {selectedKurs.fields.beschreibung && (
+                      <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{selectedKurs.fields.beschreibung}</p>
+                    )}
+                  </div>
+                  <div className="flex gap-1.5 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 w-8 p-0"
+                      onClick={() => openEditKurs(selectedKurs)}
+                    >
+                      <Pencil size={13} />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                      onClick={() => setDeleteKursId(selectedKurs.record_id)}
+                    >
+                      <Trash2 size={13} />
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => { setEditingKurs(selectedKurs); setShowKursDialog(true); }}
-                  >
-                    Bearbeiten
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-destructive border-destructive/30 hover:bg-destructive/5"
-                    onClick={() => { setConfirmDeleteId(selectedKurs.record_id); setConfirmDeleteType('kurs'); }}
-                  >
-                    <Trash2 size={13} />
-                  </Button>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+                  <InfoChip icon={<Calendar size={13} />} label="Start" value={formatDate(selectedKurs.fields.startdatum)} />
+                  <InfoChip icon={<Calendar size={13} />} label="Ende" value={formatDate(selectedKurs.fields.enddatum)} />
+                  <InfoChip icon={<Euro size={13} />} label="Preis" value={formatCurrency(selectedKurs.fields.preis)} />
+                  <InfoChip icon={<GraduationCap size={13} />} label="Dozent" value={selectedKurs.dozentName || '—'} />
                 </div>
               </div>
 
-              {/* Kurs Meta */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {selectedKurs.fields.startdatum && (
-                  <MetaChip icon={<Calendar size={13} />} label="Start" value={formatDate(selectedKurs.fields.startdatum)} />
-                )}
-                {selectedKurs.fields.enddatum && (
-                  <MetaChip icon={<Calendar size={13} />} label="Ende" value={formatDate(selectedKurs.fields.enddatum)} />
-                )}
-                {selectedKurs.dozentName && (
-                  <MetaChip icon={<GraduationCap size={13} />} label="Dozent" value={selectedKurs.dozentName} />
-                )}
-                {selectedKurs.raumName && (
-                  <MetaChip icon={<MapPin size={13} />} label="Raum" value={selectedKurs.raumName} />
-                )}
-                {selectedKurs.fields.preis != null && (
-                  <MetaChip icon={<Euro size={13} />} label="Preis" value={formatCurrency(selectedKurs.fields.preis)} />
-                )}
-                {selectedKurs.fields.max_teilnehmer != null && (
-                  <MetaChip
-                    icon={<Users size={13} />}
-                    label="Kapazität"
-                    value={`${getAnmeldungCountForKurs(selectedKurs.record_id)} / ${selectedKurs.fields.max_teilnehmer}`}
-                  />
-                )}
-              </div>
-
-              {/* Anmeldungen Section */}
-              <div>
+              {/* Registrations */}
+              <div className="p-5">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-600 text-foreground">
-                    Anmeldungen
-                    <span className="ml-2 text-xs font-400 text-muted-foreground">
-                      ({selectedKursAnmeldungen.length})
-                    </span>
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-sm">Anmeldungen</h3>
+                    <Badge variant="secondary" className="text-xs">
+                      {kursAnmeldungen.length}
+                      {selectedKurs.fields.max_teilnehmer ? ` / ${selectedKurs.fields.max_teilnehmer}` : ''}
+                    </Badge>
+                  </div>
                   <Button
                     size="sm"
-                    className="gap-1.5 h-7 text-xs bg-primary text-primary-foreground hover:opacity-90"
-                    onClick={() => { setEditingAnmeldung(null); setShowAnmeldungDialog(true); }}
+                    variant="outline"
+                    className="h-7 text-xs gap-1"
+                    onClick={() => setAnmeldungDialog({ open: true, kursId: selectedKurs.record_id })}
                   >
-                    <Plus size={12} /> Anmeldung
+                    <UserPlus size={12} /> Anmelden
                   </Button>
                 </div>
 
-                {selectedKursAnmeldungen.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-8 rounded-xl border border-dashed border-border text-center">
-                    <Users size={22} className="text-muted-foreground/40 mb-2" />
+                {kursAnmeldungen.length === 0 ? (
+                  <div className="py-8 text-center rounded-xl border border-dashed border-border">
+                    <Users size={24} className="mx-auto mb-2 text-muted-foreground/30" />
                     <p className="text-sm text-muted-foreground">Noch keine Anmeldungen</p>
                   </div>
                 ) : (
-                  <div className="space-y-1.5 max-h-64 overflow-y-auto">
-                    {selectedKursAnmeldungen.map(a => (
-                      <div
-                        key={a.record_id}
-                        className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-muted/50 hover:bg-muted transition-colors group"
-                      >
-                        <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                          <span className="text-xs font-600 text-primary">
+                  <div className="space-y-1.5">
+                    {kursAnmeldungen.map(a => (
+                      <div key={a.record_id} className="flex items-center justify-between px-3 py-2 rounded-xl bg-muted/40 hover:bg-muted/70 transition-colors group">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold shrink-0">
                             {(a.teilnehmerName || '?')[0].toUpperCase()}
-                          </span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-500 text-foreground truncate">
-                            {a.teilnehmerName || '—'}
-                          </p>
-                          {a.fields.anmeldedatum && (
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{a.teilnehmerName || '(Unbekannt)'}</p>
                             <p className="text-xs text-muted-foreground">{formatDate(a.fields.anmeldedatum)}</p>
-                          )}
+                          </div>
                         </div>
-                        <Badge
-                          variant={a.fields.bezahlt ? 'default' : 'outline'}
-                          className={`text-xs shrink-0 ${
-                            a.fields.bezahlt
-                              ? 'bg-green-100 text-green-700 border-green-200'
-                              : 'text-orange-600 border-orange-300 bg-orange-50'
-                          }`}
-                        >
-                          {a.fields.bezahlt ? 'Bezahlt' : 'Offen'}
-                        </Badge>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                        <div className="flex items-center gap-2 shrink-0">
                           <button
-                            className="p-1 rounded hover:bg-destructive/10 text-destructive"
-                            onClick={() => { setConfirmDeleteId(a.record_id); setConfirmDeleteType('anmeldung'); }}
+                            onClick={() => handleToggleBezahlt(a.record_id, a.fields.bezahlt ?? false)}
+                            className="flex items-center gap-1 text-xs rounded-full px-2 py-0.5 border transition-colors"
+                            title={a.fields.bezahlt ? 'Als unbezahlt markieren' : 'Als bezahlt markieren'}
+                            style={{
+                              color: a.fields.bezahlt ? 'var(--color-emerald-600, #059669)' : 'var(--muted-foreground)',
+                              borderColor: a.fields.bezahlt ? 'var(--color-emerald-300, #6ee7b7)' : 'var(--border)',
+                              backgroundColor: a.fields.bezahlt ? 'color-mix(in srgb, #059669 10%, transparent)' : 'transparent',
+                            }}
                           >
-                            <Trash2 size={13} />
+                            {a.fields.bezahlt ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
+                            {a.fields.bezahlt ? 'Bezahlt' : 'Offen'}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteAnmeldung(a.record_id)}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:text-destructive"
+                          >
+                            <X size={13} />
                           </button>
                         </div>
                       </div>
@@ -413,360 +402,217 @@ export default function DashboardOverview() {
                 )}
               </div>
             </div>
-          ) : (
-            /* No Selection: show chart overview */
-            <div className="rounded-2xl border border-border bg-card p-5 space-y-4 h-full">
-              <div className="flex items-center gap-2">
-                <BarChart3 size={16} className="text-primary" />
-                <h3 className="text-sm font-600 text-foreground">Anmeldungen pro Kurs</h3>
-              </div>
-              {chartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={chartData} barCategoryGap="35%">
-                    <XAxis
-                      dataKey="name"
-                      tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
-                      axisLine={false}
-                      tickLine={false}
-                      allowDecimals={false}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: 'var(--card)',
-                        border: '1px solid var(--border)',
-                        borderRadius: '10px',
-                        fontSize: 12,
-                        boxShadow: '0 4px 12px -2px oklch(0.18 0.02 255 / 0.12)',
-                      }}
-                      cursor={{ fill: 'var(--muted)', opacity: 0.5 }}
-                    />
-                    <Bar
-                      dataKey="count"
-                      name="Anmeldungen"
-                      fill="var(--primary)"
-                      radius={[5, 5, 0, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex flex-col items-center justify-center h-48 text-center">
-                  <BarChart3 size={28} className="text-muted-foreground/30 mb-2" />
-                  <p className="text-sm text-muted-foreground">Noch keine Daten</p>
-                </div>
-              )}
-              <p className="text-xs text-muted-foreground text-center">
-                Kurs auswählen für Details &amp; Anmeldungen
-              </p>
-
-              {/* Revenue summary */}
-              {revenue > 0 && (
-                <div className="mt-2 pt-4 border-t border-border flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Einnahmen (bezahlt)</span>
-                  <span className="text-base font-700 text-green-600">{formatCurrency(revenue)}</span>
-                </div>
-              )}
-            </div>
           )}
         </div>
       </div>
 
-      {/* Kurs Dialog */}
-      <KursDialog
-        open={showKursDialog}
-        onClose={() => { setShowKursDialog(false); setEditingKurs(null); }}
-        editingKurs={editingKurs}
-        dozenten={[...dozentenMap.values()]}
-        raeume={[...raeumeMap.values()]}
-        onSaved={() => { setShowKursDialog(false); setEditingKurs(null); fetchAll(); }}
-      />
+      {/* ── Dialogs ──────────────────────────────────────────────────────── */}
 
-      {/* Anmeldung Dialog */}
+      {/* Kurs create/edit dialog */}
+      <Dialog open={kursDialog.open} onOpenChange={o => setKursDialog(d => ({ ...d, open: o }))}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{kursDialog.mode === 'create' ? 'Neuer Kurs' : 'Kurs bearbeiten'}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Titel</Label>
+              <Input
+                placeholder="Kurstitel"
+                value={kursDialog.data.titel}
+                onChange={e => setKursDialog(d => ({ ...d, data: { ...d.data, titel: e.target.value } }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Beschreibung</Label>
+              <Textarea
+                placeholder="Kursbeschreibung..."
+                rows={2}
+                value={kursDialog.data.beschreibung}
+                onChange={e => setKursDialog(d => ({ ...d, data: { ...d.data, beschreibung: e.target.value } }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Startdatum</Label>
+                <Input
+                  type="date"
+                  value={kursDialog.data.startdatum}
+                  onChange={e => setKursDialog(d => ({ ...d, data: { ...d.data, startdatum: e.target.value } }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Enddatum</Label>
+                <Input
+                  type="date"
+                  value={kursDialog.data.enddatum}
+                  onChange={e => setKursDialog(d => ({ ...d, data: { ...d.data, enddatum: e.target.value } }))}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Max. Teilnehmer</Label>
+                <Input
+                  type="number"
+                  placeholder="z.B. 20"
+                  value={kursDialog.data.max_teilnehmer}
+                  onChange={e => setKursDialog(d => ({ ...d, data: { ...d.data, max_teilnehmer: e.target.value } }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Preis (EUR)</Label>
+                <Input
+                  type="number"
+                  placeholder="z.B. 199"
+                  value={kursDialog.data.preis}
+                  onChange={e => setKursDialog(d => ({ ...d, data: { ...d.data, preis: e.target.value } }))}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Dozent</Label>
+                <Select
+                  value={kursDialog.data.dozentId}
+                  onValueChange={v => setKursDialog(d => ({ ...d, data: { ...d.data, dozentId: v } }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Auswählen..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— Keiner —</SelectItem>
+                    {dozenten.map(d => (
+                      <SelectItem key={d.record_id} value={d.record_id}>
+                        {d.fields.vorname} {d.fields.nachname}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Raum</Label>
+                <Select
+                  value={kursDialog.data.raumId}
+                  onValueChange={v => setKursDialog(d => ({ ...d, data: { ...d.data, raumId: v } }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Auswählen..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— Keiner —</SelectItem>
+                    {raeume.map(r => (
+                      <SelectItem key={r.record_id} value={r.record_id}>
+                        {r.fields.raumname}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setKursDialog(d => ({ ...d, open: false }))}>Abbrechen</Button>
+            <Button onClick={handleSaveKurs} disabled={saving || !kursDialog.data.titel}>
+              {saving ? 'Speichern...' : kursDialog.mode === 'create' ? 'Kurs erstellen' : 'Änderungen speichern'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Anmeldung dialog */}
       <AnmeldungDialog
-        open={showAnmeldungDialog}
-        onClose={() => { setShowAnmeldungDialog(false); setEditingAnmeldung(null); }}
-        kursId={selectedKursId}
-        teilnehmer={[...teilnehmerMap.values()]}
-        onSaved={() => { setShowAnmeldungDialog(false); setEditingAnmeldung(null); fetchAll(); }}
+        open={anmeldungDialog.open}
+        onClose={() => setAnmeldungDialog(d => ({ ...d, open: false }))}
+        teilnehmer={teilnehmer}
+        saving={saving}
+        onSave={handleSaveAnmeldung}
       />
 
-      {/* Confirm Delete */}
-      <ConfirmDeleteDialog
-        open={confirmDeleteId !== null}
-        type={confirmDeleteType}
-        onCancel={() => setConfirmDeleteId(null)}
-        onConfirm={async () => {
-          if (!confirmDeleteId) return;
-          if (confirmDeleteType === 'kurs') {
-            await LivingAppsService.deleteKurseEntry(confirmDeleteId);
-            if (selectedKursId === confirmDeleteId) setSelectedKursId(null);
-          } else {
-            await LivingAppsService.deleteAnmeldungenEntry(confirmDeleteId);
-          }
-          setConfirmDeleteId(null);
-          fetchAll();
-        }}
-        isSubmitting={isSubmitting}
-        setIsSubmitting={setIsSubmitting}
-      />
+      {/* Delete confirmation */}
+      <Dialog open={!!deleteKursId} onOpenChange={o => !o && setDeleteKursId(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Kurs löschen?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Dieser Kurs wird unwiderruflich gelöscht. Bestehende Anmeldungen bleiben erhalten.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteKursId(null)}>Abbrechen</Button>
+            <Button
+              variant="destructive"
+              disabled={saving}
+              onClick={() => deleteKursId && handleDeleteKurs(deleteKursId)}
+            >
+              {saving ? 'Löschen...' : 'Kurs löschen'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-// ---- Sub-components ----
+// ── Sub-components ─────────────────────────────────────────────────────────────
 
-function KpiCard({
-  label,
-  value,
-  icon,
-  accent,
-}: {
-  label: string;
-  value: number;
-  icon: React.ReactNode;
-  accent: 'blue' | 'purple' | 'green' | 'orange';
-}) {
-  const accentMap = {
-    blue: 'bg-blue-50 text-blue-600',
-    purple: 'bg-purple-50 text-purple-600',
-    green: 'bg-green-50 text-green-600',
-    orange: 'bg-orange-50 text-orange-600',
-  };
-  return (
-    <div className="rounded-2xl border border-border bg-card p-4 flex items-center gap-3">
-      <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${accentMap[accent]}`}>
-        {icon}
-      </div>
-      <div>
-        <p className="text-2xl font-800 text-foreground leading-none">{value}</p>
-        <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
-      </div>
-    </div>
-  );
-}
-
-function MetaChip({
-  icon,
-  label,
-  value,
-}: {
+function KpiCard({ icon, label, value, color }: {
   icon: React.ReactNode;
   label: string;
-  value: string;
+  value: number | string;
+  color: 'indigo' | 'violet' | 'sky' | 'emerald';
 }) {
+  const colors = {
+    indigo: 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/30',
+    violet: 'bg-violet-50 text-violet-600 dark:bg-violet-950/30',
+    sky: 'bg-sky-50 text-sky-600 dark:bg-sky-950/30',
+    emerald: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30',
+  };
   return (
-    <div className="rounded-lg bg-muted/60 px-3 py-2">
-      <p className="text-xs text-muted-foreground flex items-center gap-1 mb-0.5">
+    <div className="rounded-2xl border border-border bg-card p-4">
+      <div className={`w-8 h-8 rounded-xl flex items-center justify-center mb-2 ${colors[color]}`}>
         {icon}
-        {label}
-      </p>
-      <p className="text-sm font-500 text-foreground truncate">{value}</p>
+      </div>
+      <p className="text-2xl font-bold tracking-tight">{value}</p>
+      <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
     </div>
   );
 }
 
-// ---- KursDialog ----
-import type { Dozenten, Raeume } from '@/types/app';
-
-function KursDialog({
-  open,
-  onClose,
-  editingKurs,
-  dozenten,
-  raeume,
-  onSaved,
-}: {
-  open: boolean;
-  onClose: () => void;
-  editingKurs: Kurse | null;
-  dozenten: Dozenten[];
-  raeume: Raeume[];
-  onSaved: () => void;
-}) {
-  const [form, setForm] = useState({
-    titel: editingKurs?.fields.titel ?? '',
-    beschreibung: editingKurs?.fields.beschreibung ?? '',
-    startdatum: editingKurs?.fields.startdatum ?? '',
-    enddatum: editingKurs?.fields.enddatum ?? '',
-    max_teilnehmer: editingKurs?.fields.max_teilnehmer?.toString() ?? '',
-    preis: editingKurs?.fields.preis?.toString() ?? '',
-    dozent: editingKurs?.fields.dozent ? (extractRecordId(editingKurs.fields.dozent) ?? 'none') : 'none',
-    raum: editingKurs?.fields.raum ? (extractRecordId(editingKurs.fields.raum) ?? 'none') : 'none',
-  });
-  const [saving, setSaving] = useState(false);
-
-  // Reset when dialog opens
-  useState(() => {
-    setForm({
-      titel: editingKurs?.fields.titel ?? '',
-      beschreibung: editingKurs?.fields.beschreibung ?? '',
-      startdatum: editingKurs?.fields.startdatum ?? '',
-      enddatum: editingKurs?.fields.enddatum ?? '',
-      max_teilnehmer: editingKurs?.fields.max_teilnehmer?.toString() ?? '',
-      preis: editingKurs?.fields.preis?.toString() ?? '',
-      dozent: editingKurs?.fields.dozent ? (extractRecordId(editingKurs.fields.dozent) ?? 'none') : 'none',
-      raum: editingKurs?.fields.raum ? (extractRecordId(editingKurs.fields.raum) ?? 'none') : 'none',
-    });
-  });
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      const fields: Kurse['fields'] = {
-        titel: form.titel || undefined,
-        beschreibung: form.beschreibung || undefined,
-        startdatum: form.startdatum || undefined,
-        enddatum: form.enddatum || undefined,
-        max_teilnehmer: form.max_teilnehmer ? Number(form.max_teilnehmer) : undefined,
-        preis: form.preis ? Number(form.preis) : undefined,
-        dozent: form.dozent !== 'none' ? createRecordUrl(APP_IDS.DOZENTEN, form.dozent) : undefined,
-        raum: form.raum !== 'none' ? createRecordUrl(APP_IDS.RAEUME, form.raum) : undefined,
-      };
-      if (editingKurs) {
-        await LivingAppsService.updateKurseEntry(editingKurs.record_id, fields);
-      } else {
-        await LivingAppsService.createKurseEntry(fields);
-      }
-      onSaved();
-    } finally {
-      setSaving(false);
-    }
-  };
-
+function InfoChip({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>{editingKurs ? 'Kurs bearbeiten' : 'Neuen Kurs anlegen'}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3 py-2">
-          <div className="space-y-1">
-            <Label className="text-xs font-500">Kurstitel</Label>
-            <Input value={form.titel} onChange={e => setForm(f => ({ ...f, titel: e.target.value }))} placeholder="Titel…" />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs font-500">Beschreibung</Label>
-            <Input value={form.beschreibung} onChange={e => setForm(f => ({ ...f, beschreibung: e.target.value }))} placeholder="Beschreibung…" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs font-500">Startdatum</Label>
-              <Input type="date" value={form.startdatum} onChange={e => setForm(f => ({ ...f, startdatum: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs font-500">Enddatum</Label>
-              <Input type="date" value={form.enddatum} onChange={e => setForm(f => ({ ...f, enddatum: e.target.value }))} />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs font-500">Max. Teilnehmer</Label>
-              <Input type="number" value={form.max_teilnehmer} onChange={e => setForm(f => ({ ...f, max_teilnehmer: e.target.value }))} placeholder="0" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs font-500">Preis (€)</Label>
-              <Input type="number" value={form.preis} onChange={e => setForm(f => ({ ...f, preis: e.target.value }))} placeholder="0.00" />
-            </div>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs font-500">Dozent</Label>
-            <Select value={form.dozent} onValueChange={v => setForm(f => ({ ...f, dozent: v }))}>
-              <SelectTrigger className="text-sm"><SelectValue placeholder="Dozent wählen" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Kein Dozent</SelectItem>
-                {dozenten.map(d => (
-                  <SelectItem key={d.record_id} value={d.record_id}>
-                    {d.fields.vorname} {d.fields.nachname}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs font-500">Raum</Label>
-            <Select value={form.raum} onValueChange={v => setForm(f => ({ ...f, raum: v }))}>
-              <SelectTrigger className="text-sm"><SelectValue placeholder="Raum wählen" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Kein Raum</SelectItem>
-                {raeume.map(r => (
-                  <SelectItem key={r.record_id} value={r.record_id}>
-                    {r.fields.raumname}{r.fields.gebaeude ? ` · ${r.fields.gebaeude}` : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>Abbrechen</Button>
-          <Button onClick={handleSave} disabled={saving || !form.titel}>
-            {saving ? 'Speichern…' : 'Speichern'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <div className="flex flex-col gap-0.5">
+      <p className="text-xs text-muted-foreground flex items-center gap-1">{icon} {label}</p>
+      <p className="text-sm font-medium truncate">{value}</p>
+    </div>
   );
 }
 
-// ---- AnmeldungDialog ----
-import type { Teilnehmer } from '@/types/app';
-
-function AnmeldungDialog({
-  open,
-  onClose,
-  kursId,
-  teilnehmer,
-  onSaved,
-}: {
+function AnmeldungDialog({ open, onClose, teilnehmer, saving, onSave }: {
   open: boolean;
   onClose: () => void;
-  kursId: string | null;
-  teilnehmer: Teilnehmer[];
-  onSaved: () => void;
+  teilnehmer: import('@/types/app').Teilnehmer[];
+  saving: boolean;
+  onSave: (form: AnmeldungFormData) => void;
 }) {
-  const [form, setForm] = useState({
-    teilnehmer_id: 'none',
-    anmeldedatum: new Date().toISOString().slice(0, 10),
-    bezahlt: false,
-  });
-  const [saving, setSaving] = useState(false);
-
-  const handleSave = async () => {
-    if (!kursId) return;
-    setSaving(true);
-    try {
-      const fields: Anmeldungen['fields'] = {
-        kurs: createRecordUrl(APP_IDS.KURSE, kursId),
-        teilnehmer: form.teilnehmer_id !== 'none'
-          ? createRecordUrl(APP_IDS.TEILNEHMER, form.teilnehmer_id)
-          : undefined,
-        anmeldedatum: form.anmeldedatum || undefined,
-        bezahlt: form.bezahlt,
-      };
-      await LivingAppsService.createAnmeldungenEntry(fields);
-      onSaved();
-    } finally {
-      setSaving(false);
-    }
-  };
+  const today = new Date().toISOString().slice(0, 10);
+  const [form, setForm] = useState<AnmeldungFormData>({ teilnehmerId: 'none', anmeldedatum: today, bezahlt: false });
 
   return (
-    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+    <Dialog open={open} onOpenChange={o => !o && onClose()}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Neue Anmeldung</DialogTitle>
+          <DialogTitle>Teilnehmer anmelden</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3 py-2">
-          <div className="space-y-1">
-            <Label className="text-xs font-500">Teilnehmer</Label>
-            <Select value={form.teilnehmer_id} onValueChange={v => setForm(f => ({ ...f, teilnehmer_id: v }))}>
-              <SelectTrigger className="text-sm"><SelectValue placeholder="Teilnehmer wählen" /></SelectTrigger>
+        <div className="space-y-4 py-1">
+          <div className="space-y-1.5">
+            <Label>Teilnehmer</Label>
+            <Select value={form.teilnehmerId} onValueChange={v => setForm(f => ({ ...f, teilnehmerId: v }))}>
+              <SelectTrigger>
+                <SelectValue placeholder="Auswählen..." />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">Kein Teilnehmer</SelectItem>
+                <SelectItem value="none">— Auswählen —</SelectItem>
                 {teilnehmer.map(t => (
                   <SelectItem key={t.record_id} value={t.record_id}>
                     {t.fields.vorname} {t.fields.nachname}
@@ -775,23 +621,27 @@ function AnmeldungDialog({
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1">
-            <Label className="text-xs font-500">Anmeldedatum</Label>
+          <div className="space-y-1.5">
+            <Label>Anmeldedatum</Label>
             <Input type="date" value={form.anmeldedatum} onChange={e => setForm(f => ({ ...f, anmeldedatum: e.target.value }))} />
           </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="bezahlt"
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="rounded"
               checked={form.bezahlt}
-              onCheckedChange={v => setForm(f => ({ ...f, bezahlt: v === true }))}
+              onChange={e => setForm(f => ({ ...f, bezahlt: e.target.checked }))}
             />
-            <Label htmlFor="bezahlt" className="text-sm cursor-pointer">Bereits bezahlt</Label>
-          </div>
+            <span className="text-sm">Bereits bezahlt</span>
+          </label>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>Abbrechen</Button>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? 'Speichern…' : 'Anmelden'}
+          <Button variant="outline" onClick={onClose}>Abbrechen</Button>
+          <Button
+            disabled={saving || form.teilnehmerId === 'none'}
+            onClick={() => onSave(form)}
+          >
+            {saving ? 'Speichern...' : 'Anmelden'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -799,54 +649,6 @@ function AnmeldungDialog({
   );
 }
 
-// ---- Confirm Delete ----
-function ConfirmDeleteDialog({
-  open,
-  type,
-  onCancel,
-  onConfirm,
-  isSubmitting,
-  setIsSubmitting,
-}: {
-  open: boolean;
-  type: 'kurs' | 'anmeldung';
-  onCancel: () => void;
-  onConfirm: () => Promise<void>;
-  isSubmitting: boolean;
-  setIsSubmitting: (v: boolean) => void;
-}) {
-  const handleConfirm = async () => {
-    setIsSubmitting(true);
-    try {
-      await onConfirm();
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={v => !v && onCancel()}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>{type === 'kurs' ? 'Kurs löschen?' : 'Anmeldung löschen?'}</DialogTitle>
-        </DialogHeader>
-        <p className="text-sm text-muted-foreground py-2">
-          {type === 'kurs'
-            ? 'Dieser Kurs und alle zugehörigen Daten werden unwiderruflich gelöscht.'
-            : 'Diese Anmeldung wird unwiderruflich gelöscht.'}
-        </p>
-        <DialogFooter>
-          <Button variant="outline" onClick={onCancel} disabled={isSubmitting}>Abbrechen</Button>
-          <Button variant="destructive" onClick={handleConfirm} disabled={isSubmitting}>
-            {isSubmitting ? 'Löschen…' : 'Löschen'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ---- Loading / Error ----
 function DashboardSkeleton() {
   return (
     <div className="space-y-6">

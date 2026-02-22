@@ -42,36 +42,11 @@ Then implement immediately. No design_brief.md, no task lists, no planning docum
 
 ---
 
-## Step 2: Edit index.css (design tokens)
-
-**Use Edit, NOT Write** — `index.css` is pre-generated with correct import order.
-
-Choose a font and color palette that fits the app's domain, then add your tokens:
-
-```css
-@import url('https://fonts.googleapis.com/css2?family=...');  /* URL imports FIRST */
-@import "tailwindcss";
-@import "tw-animate-css";
-
-/* EXTEND :root — do NOT rewrite */
-:root {
-  --background: oklch(...);
-  --foreground: oklch(...);
-  --card: oklch(...);
-  --primary: oklch(...);
-  /* ... */
-  --gradient-primary: linear-gradient(135deg, oklch(...), oklch(...));
-  --shadow-elegant: 0 10px 30px -10px oklch(... / 0.3);
-}
-```
-
-**CSS Import Order MUST stay intact:** `@import url(...)` FIRST, then `@import "tailwindcss"`, then `@import "tw-animate-css"`.
-
-## Step 3: Edit Layout.tsx (title only)
+## Step 2: Edit Layout.tsx (title only)
 
 Use Edit to change `APP_TITLE` and `APP_SUBTITLE`. Nothing else.
 
-## Step 4: Build DashboardOverview.tsx
+## Step 3: Build DashboardOverview.tsx
 
 **Mandatory sequence:**
 1. **Read** `src/pages/DashboardOverview.tsx` using the Read tool
@@ -79,7 +54,7 @@ Use Edit to change `APP_TITLE` and `APP_SUBTITLE`. Nothing else.
 
 **NEVER use Bash (cat/echo/heredoc) for file operations.** If Read or Write fails, retry with the same tool.
 
-## Step 5: Deploy
+## Step 4: Deploy
 
 ```bash
 npm run build
@@ -91,9 +66,11 @@ Then call `mcp__deploy_tools__deploy_to_github`
 
 ## What Is Pre-Generated (DO NOT touch!)
 
-CRUD sub-pages, dialogs, routing, sidebar, and shared components are pre-generated. Changing CSS variables in `index.css` automatically updates their appearance.
+CRUD sub-pages, dialogs, routing, sidebar, shared components, and the design system are pre-generated.
 
-**DO NOT touch:** CRUD pages, dialogs, App.tsx, PageShell.tsx, StatCard.tsx, ConfirmDialog.tsx, useDashboardData.ts, enriched.ts, enrich.ts, formatters.ts.
+**DO NOT touch:** index.css, CRUD pages, dialogs, App.tsx, PageShell.tsx, StatCard.tsx, ConfirmDialog.tsx, useDashboardData.ts, enriched.ts, enrich.ts, formatters.ts.
+
+`index.css` contains the shared design system (Plus Jakarta Sans, indigo palette, dark sidebar). All semantic tokens (`bg-primary`, `text-muted-foreground`, `bg-sidebar`, etc.) are ready to use. Do NOT edit index.css — use existing tokens in your components.
 
 **Already available in DashboardOverview.tsx:**
 - `useDashboardData()` — all entities loaded, lookup maps built, loading/error handled
@@ -125,37 +102,18 @@ The pre-generated CRUD list pages are a fallback. Users should do 90% of their w
 - All KPI cards look identical
 - Layout is a boring 2x2 or 3x3 grid
 - No clear hero element
-- Colors are generic blue/green/red
+- Colors are generic blue/green/red (use the pre-configured palette tokens instead)
 - Dashboard could be for ANY app
-- Font is Inter, Roboto, Open Sans, Lato, Arial, Helvetica, or system-ui
 
 ---
 
-## Design Principles (apply inline, no separate document)
+## Design Principles
 
-### Theme: Light, Minimal, BUT Distinctive
+### Theme
 
-Always light mode. Minimal does NOT mean generic.
+Font (Plus Jakarta Sans) and color palette (indigo accent, warm off-white base, dark sidebar) are pre-configured in `index.css`. Use existing semantic tokens — do NOT add custom CSS variables unless the dashboard requires truly app-specific values (e.g. `--calendar-slot-height`).
 
-**Color:** Start with warm or cool off-white base (not pure white). Add ONE refined accent color that fits the app's domain — not generic blue (#007bff).
-
-**Typography:** FORBIDDEN: Inter, Roboto, Open Sans, Lato, Arial, Helvetica, system-ui.
-
-| App Character | Recommended Fonts |
-|--------------|-------------------|
-| Data/Analytics | Space Grotesk, IBM Plex Sans, Geist |
-| Fitness/Health | Outfit, Nunito Sans, DM Sans |
-| Finance | Source Serif 4, Newsreader, IBM Plex Serif |
-| Creative | Syne, Bricolage Grotesque, Cabinet Grotesk |
-| Professional | Source Sans 3, Plus Jakarta Sans, Manrope |
-
-Typography hierarchy through extreme weight differences (300 vs 700) and size jumps (24px vs 14px).
-
-**Colors must be oklch() functions:**
-```css
---primary: oklch(0.52 0.22 264);   /* ✅ */
---primary: 0.52 0.22 264;          /* ❌ breaks! */
-```
+Create typography hierarchy through weight differences (font-300 vs font-700) and size jumps (text-2xl vs text-sm).
 
 ### Layout: Visual Interest Required
 
@@ -196,12 +154,6 @@ const dateForAPI = formData.date + 'T12:00'; // YYYY-MM-DDTHH:MM only
 ---
 
 ## Completeness Checklist
-
-### Theme
-- [ ] Font loaded via @import url() in index.css (FIRST, before tailwindcss!)
-- [ ] Font is NOT from forbidden list
-- [ ] All CSS variables are oklch() functions
-- [ ] Color palette fits the app's domain
 
 ### Core Component
 - [ ] Interactive component implements the chosen UI paradigm

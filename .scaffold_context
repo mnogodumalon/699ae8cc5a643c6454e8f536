@@ -2,16 +2,18 @@
 
 These files are pre-generated. Do NOT Read them — their contents are below.
 EXCEPTION: DashboardOverview.tsx is NOT included here. You MUST Read it with the Read tool before Write.
-Your job: Analyze data (1-2 sentences), Edit index.css (design tokens), Edit Layout.tsx (title), Read then Write DashboardOverview.tsx (once), Deploy.
+Your job: Analyze data (1-2 sentences), Edit Layout.tsx (title), Read then Write DashboardOverview.tsx (once), Deploy.
+index.css is pre-generated with the shared design system. Do NOT edit it.
 NEVER use Bash cat/echo/heredoc for file operations — always use Read/Write/Edit tools.
 
-Generated 22 scaffold files:
+Generated 23 scaffold files:
   - src/App.tsx
   - src/components/Layout.tsx
   - src/components/PageShell.tsx
   - src/pages/DashboardOverview.tsx
   - src/components/ConfirmDialog.tsx
   - src/components/StatCard.tsx
+  - src/index.css
   - src/lib/formatters.ts
   - src/hooks/useDashboardData.ts
   - src/types/enriched.ts

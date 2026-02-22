@@ -4,7 +4,7 @@ import { useState } from 'react';
 
 // ⚡ Customize these for your app
 const APP_TITLE = 'Kursverwaltung';
-const APP_SUBTITLE = 'Bildungsmanagement';
+const APP_SUBTITLE = 'Kurs & Anmeldungen';
 
 const navigation = [
   { name: 'Übersicht', href: '/', icon: LayoutDashboard },
